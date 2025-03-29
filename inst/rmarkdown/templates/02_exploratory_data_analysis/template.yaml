@@ -1,0 +1,4 @@
+name: 02_Exploratory_Data_Analysis
+description: >
+   This R markdown aims to provide a brief introduction to Exploratory Data Analysis (EDA).
+create_dir: FALSE

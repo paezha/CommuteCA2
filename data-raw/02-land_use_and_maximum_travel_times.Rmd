@@ -1,0 +1,522 @@
+---
+title: "Creating data sets for the CommuteCA R Package"
+author: "Bruno Santos & Antonio Paez"
+date: "`r Sys.Date()`"
+output:
+  tufte::tufte_html: default
+  tufte::tufte_handout:
+    citation_package: natbib
+    latex_engine: xelatex
+  tufte::tufte_book:
+    citation_package: natbib
+    latex_engine: xelatex
+bibliography: skeleton.bib
+link-citations: yes
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r clean-workspace, include=FALSE}
+# cleaning objects from the workspace 
+rm(list = ls())
+```
+
+```{r setup, include=FALSE}
+# layout configuration 
+library(tufte) # not installed on this machine
+library(knitr) # A General-Purpose Package for Dynamic Report Generation in R
+options(htmltools.dir.version = FALSE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+# Introduction
+
+This Rmarkdown file is part of the
+[**CommuteCA**](https://github.com/dias-bruno/CommuteCA) package.
+This package was created in conjunction with the office of the
+[*Research Data Center* at *McMaster
+University*](https://rdc.mcmaster.ca/), the [*Sherman Centre for Digital
+Scholarship*](https://scds.ca/) and the [*Mobilizing
+Justice*](https://mobilizingjustice.ca/)[^1].
+
+[^1]: The Mobilizing Justice project is a multidisciplinary and
+    multi-sector collaboration with the objective of understand and
+    address transportation poverty in Canada and to improve the
+    well-being of Canadians at risk of transport poverty. The Social
+    Sciences and Humanities Research Council (SSRHC) has provided
+    funding for the project, which was created by an unprecedented
+    alliance of academics from various Canadian provinces and
+    institutions, transportation firms, and nonprofit organizations
+
+The main objective of the *CommuteCA* package is to develop
+standardized methods for transport analysis in research, especially for
+studies using Statistics Canada surveys. Among the available surveys, we
+focused our efforts on the [*2021 Census of
+Population*](https://www12.statcan.gc.ca/census-recensement/index-eng.cfm),
+which contain valuable variables for transportation research.
+
+This R markdown presents the methodology used to obtain the datasets available in *CommuteCA* package. Here, we record the method for obtaining `max_travel_times_cma.rda`, `max_travel_times_cma.rda`, `land_use_general_CT.rda` and `land_use_mode_CT.rda` shared in the `CommuteCA/data/` folder.
+
+## Land Use Tables
+
+Load the packages:
+
+```{r load-packages}
+library(dplyr)# A Grammar of Data Manipulation 
+library(fitdistrplus) # Help to Fit of a Parametric Distribution to Non-Censored or Censored Data
+library(scales) # Scale data column-wise in a computationally efficient way
+library(sf) # Simple Features for R
+library(here) # enable easy file referencing in project-oriented workflows
+```
+
+Reading census data and creating a R data frame:
+
+```{r}
+files_address <- paste0(here(),"/data-ignore-inputs/census_test_v3.csv") # Census address
+```
+
+
+```{r load-census-data}
+census <- read.csv(files_address, header = TRUE)
+```
+
+| ⚠️**NOTE:**  If the code above did not run correctly, you probably are experiencing a file address error. Try to identify the correct address and update the chunk named `census-file-address` to continue.
+
+The original census dataset has a wide variety of attributes. However,
+we will only work with a selection of these variables. The next chunk
+selects only the variables previously chosen for our analysis, reducing
+the size of the dataframe and making data processing faster:
+
+```{r select-variables-census}
+census <- census %>% 
+          dplyr::select("PRCDDA",
+                 "Pr",
+                 "CMA",
+                 "PCD",
+                 "CompW1",
+                 "LBR_FORC",
+                 "PWDA",
+                 "PWPR",
+                 "PWCMA",
+                 "PWCD",
+                 "PWDUR",
+                 "PWDist",
+                 "PwMode")
+```
+
+Some of these variables should have been read as a factor variable. The
+next chunk corrects this problem by turning them into factors:
+
+```{r factoring-variables}
+census <- census %>% 
+          mutate_at(c("PRCDDA",
+                 "Pr",
+                 "CMA",
+                 "PCD",
+                 "LBR_FORC",
+                 "PWDA",
+                 "PWPR",
+                 "PWCMA",
+                 "PWCD"), as.factor)
+```
+
+View summary statistics from the data frame:
+
+```{r census-summary}
+summary(census[,1:12])
+```
+
+Renaming the variable `PwMode`:
+
+```{r rename-PwMode}
+census <- census  %>% 
+                   mutate(PwMode = case_when(PwMode > 0 & PwMode <= 2 ~ "Car/motor",
+                                             PwMode == 9 ~ "Car/motor",
+                            PwMode >= 3 & PwMode <= 6  ~ "Transit",
+                            PwMode == 7  ~ "Walk",
+                            PwMode == 8  ~ "Bike"),
+         
+         PwMode = factor(PwMode, levels = c("Bike", "Walk", "Car/motor", "Transit")))
+```
+
+According to the Census 2021, an 'Employed' person refers to those who,
+during the reference period, had a labour force status of
+'employed.'[^11]. In addition, the labour force is made up of the
+employed population and the unemployed population. This variable can
+assume the values:
+
+[^11]: Those who, during the reference period: (a) Did any work at all
+    at a job or business, that is, paid work in the context of an
+    employer-employee relationship, or self-employment. This also
+    includes persons who did unpaid family work, which is defined as
+    unpaid work contributing directly to the operation of a farm,
+    business or professional practice owned and operated by a related
+    member of the same household; or (b) Had a job but were not at work
+    due to factors such as their own illness or disability, personal or
+    family responsibilities, vacation or a labour dispute. This category
+    excludes persons not at work because they were on layoff or between
+    casual jobs, and those who did not then have a job (even if they had
+    a job to start at a future date).
+
+-   -3: Not Applicable, \< 15 years
+-   1: In Labour Force, Employed
+-   2: In Labour Force, Unemployed
+-   3: Not in Labour Force
+
+Each employee also declares in which DA their workplace is located. This
+information is important for the accessibility analysis, as it allows us
+to count the number of job opportunities in each DA.
+
+```{r employed-selection}
+# Employed respondents
+census_employed <- census %>% 
+                   filter(LBR_FORC == 1)
+
+census_labour_force <- census %>% 
+                   filter(LBR_FORC == 1 | LBR_FORC == 2)
+```
+
+We now need to determine the labour force and job opportunities for each spatial unit.
+We will use Census Tracts (CT) as the spatial unit of reference to create the land use tables. However, Dissemination Areas (DA) are the most detailed spatial unit used by the Population Census to aggregate data. For this reason, we will first create a table based on DA units and then remodel it for CT units.
+
+Creating the labour force table at DA level:
+
+```{r creating-labour-force-table}
+# Total non commuters population by PRCDDA
+non_commuters <- census_labour_force %>%
+  filter(PWDUR == -3) %>%
+  group_by(PRCDDA) %>% 
+  summarize(all_non_commuters = sum(CompW1),
+            .groups = "drop")
+
+# Total commuters by PRCDDA and PwMode
+commuters <- census_employed %>%
+  filter(!is.na(PwMode)) %>%
+  group_by(PRCDDA, PwMode) |> 
+  summarize(commuters_mode = sum(CompW1),
+            .groups = "drop")
+
+# commuter population by PRCDDA
+commuters <- commuters %>%
+            group_by(PRCDDA) %>% 
+            mutate(all_commuters = sum(commuters_mode))
+
+# Allocating the non_commuters according to the share of each population mode
+
+grid_exp_non_commuters <- 
+  expand.grid(PRCDDA = unique(non_commuters$PRCDDA), PwMode = unique(commuters$PwMode))
+
+non_commuters <- left_join(non_commuters, grid_exp_non_commuters)
+
+labour_force <- commuters %>% 
+  full_join(non_commuters, by = c("PRCDDA", "PwMode"))
+
+labour_force[is.na(labour_force$all_non_commuters),]$all_non_commuters <- 0
+
+labour_force["perc_mode"] <- labour_force$commuters_mode/labour_force$all_commuters
+
+## For cases when the DA there's only non_commuters respondents
+
+general_perc_mode <- census_employed %>%
+  filter(!is.na(PwMode)) %>% 
+  group_by(PwMode) %>%
+  summarise(general_pop_mode = sum(CompW1)) %>%
+  mutate(general_pop = sum(general_pop_mode),
+         pc = general_pop_mode/general_pop)
+
+for(mode in unique(commuters$PwMode)){
+  labour_force[is.na(labour_force$perc_mode) & labour_force$PwMode == mode, ]$perc_mode <- general_perc_mode[general_perc_mode$PwMode == mode,]$pc
+}
+
+labour_force[is.na(labour_force$commuters_mode),]$commuters_mode <- 0
+labour_force[is.na(labour_force$all_commuters),]$all_commuters <- 0
+
+# Updating the labour force
+labour_force <- labour_force %>%
+  mutate(labour_force = ((all_non_commuters * perc_mode) + commuters_mode))
+```
+
+```{r selecting-var-labour-table}
+labour_force <- labour_force[,c("PRCDDA", "PwMode", "labour_force")]
+```
+
+Creating the jobs table at DA level:
+
+```{r creating-jobs-table}
+# Total job opportunities 
+jobs <- as.data.frame(census_employed) |> 
+  group_by(PWDA) |> 
+  summarize(jobs = sum(CompW1),
+            jobs_unweighted = n(), 
+            .groups = "drop")
+
+grid_exp_jobs <- 
+  expand.grid(PWDA = unique(jobs$PWDA), PwMode = unique(commuters$PwMode))
+
+jobs <- left_join(jobs, grid_exp_jobs)
+```
+
+Creating a land use data frame (DA level) with the following information for each
+DA: mode of transportation, number of potential workers by mode, and
+number of jobs.
+
+```{r create-land-use}
+land_use_DA <- data.frame(expand.grid(PRCDDA = union(census_labour_force$PRCDDA, census_employed$PWDA), PwMode = unique(commuters$PwMode)))
+
+land_use_DA <- land_use_DA %>% 
+  full_join(labour_force, by = c("PRCDDA","PwMode")) %>%
+  full_join(jobs, by = c("PRCDDA" = "PWDA","PwMode"))
+```
+
+
+Now, let's transform this table to an CT level table. First, we'll add the data `dissemination_areas_ca21.rda`, which the CT information for each DA: 
+
+```{r}
+# reading file
+dissemination_areas_ca21 <- sf::st_read(glue::glue(here::here(), 
+                                                   "/data-ignore-inputs/dissemination_areas_ca21_str.shp"))
+```
+
+```{r}
+#load(paste0(here::here(),"/data/dissemination_areas_ca21.rda"))
+
+#dissemination_areas_ca21 <- read.csv(paste0(here::here(),"/data/dissemination_areas_ca21.csv"), header = TRUE)
+
+dissemination_areas_ca21 <- as.data.frame(dissemination_areas_ca21) |> st_drop_geometry()
+
+dissemination_areas_ca21$DAUID <- as.factor(dissemination_areas_ca21$DAUID)
+```
+
+Then, we will bring information from the DA dataset to our land use table:
+
+```{r}
+land_use_CT <- left_join(land_use_DA, dissemination_areas_ca21[,c("DAUID","PRUID","PCD","CMAUID","CMANAME","CTUID","CTNAME")], by = c("PRCDDA" = "DAUID"))
+```
+
+It is possible that the table junction results in NA values for the
+labour force or jobs column[^14]. Because of this, we'll assign a 0
+value to lines with NA values in number of jobs/labour force.
+
+[^14]: Imagine an industrial DA where there are a number of job
+    opportunities, but no one lives there. As another example, we could
+    take a strictly residential DA with many potential labour force
+    living there, but no job opportunities. In the first case, the
+    labour force will be 0, while in the second case, the number of jobs
+    will be 0.
+    
+```{r fixing-OD}
+land_use_CT[is.na(land_use_CT$labour_force),]$labour_force <- 0
+land_use_CT[is.na(land_use_CT$jobs),]$jobs <- 0
+land_use_CT[is.na(land_use_CT$jobs_unweighted),]$jobs_unweighted <- 0
+```
+
+Aggregating the data at CT level. To do so, we'll sum all the jobs opportunities and labour force in each DA from the same CT:
+
+```{r lu-ct}
+land_use_CT_lf <- land_use_CT %>%
+  group_by(CTUID, PwMode) %>%
+  summarise(labour_force = sum(labour_force)) 
+
+land_use_CT_jobs <- land_use_CT %>%
+  group_by(CTUID, PRCDDA) %>%
+  summarise(jobs = first(jobs), 
+            jobs = sum(jobs), 
+            jobs_unweighted = first(jobs_unweighted),
+            jobs_unweighted = sum(jobs_unweighted)) %>% 
+  group_by(CTUID) %>%
+  summarise(jobs = sum(jobs), 
+            jobs_unweighted = sum(jobs_unweighted))
+
+land_use_CT <- land_use_CT_lf %>%
+  left_join(land_use_CT_jobs, by = "CTUID")
+
+DAS <- as.data.frame(dissemination_areas_ca21)
+
+ct_labels <- unique(DAS[,c("CTUID", "PRUID", "PCD", "CMAUID", "CMANAME")]) 
+ct_labels <- ct_labels[!is.na(ct_labels$CTUID),]
+
+land_use_CT <- land_use_CT %>%
+   left_join(ct_labels, by = ("CTUID" = "CTUID"))
+```
+
+Confirming whether the labour force and job opportunities in the OD
+matches the original data:
+
+```{r sum-works-jobs}
+# total labour force  
+sum(labour_force$labour_force)
+
+# checking if the labour force is equal in both data frames
+sum(labour_force$labour_force) == sum(land_use_CT$labour_force)
+
+# total number of jobs 
+jobs %>% group_by(PWDA) %>%
+  summarize(jobs = first(jobs)) %>%
+  dplyr::select(jobs) %>%
+  sum(na.rm = TRUE)
+
+# checking if the number of jobs is equal in both data frames
+jobs %>% group_by(PWDA) %>%
+  summarize(jobs = first(jobs)) %>%
+  dplyr::select(jobs) %>%
+  sum(na.rm = TRUE) == land_use_CT %>% group_by(CTUID) %>%
+  summarize(jobs = first(jobs)) %>%
+  dplyr::select(jobs) %>%
+  sum(na.rm = TRUE)
+```
+
+
+### Land use confidentiality vetting
+
+Confidentiality vetting is the process of reviewing the results to be released by the Research Data Center to ensure that confidentiality risks for StatCan respondents are minimized. 
+
+The following rules apply to our results:
+
+- Statistics must not be released for identifiable areas with less than 40 persons ($\sum{CompW1} ≥ 40$).
+- Counts must be based on at least 5 respondents ($n ≥ 5$), with a sum of weights of at least 10 ($\sum{CompW1} ≥ 10$), to be releasable. In addition, counts must be rounded up to multiples of 5. 
+
+The block above checks the total population of each DA and the number of respondents:
+
+```{r da-vetting}
+da_cts <- as.data.frame(dissemination_areas_ca21)[,c("DAUID","CTUID")]
+da_cts <- da_cts[!is.na(da_cts$CTUID),]
+
+vetting_ct <- census  %>%
+  left_join(da_cts, by = c("PRCDDA" = "DAUID")) %>% 
+  filter(!is.na(CTUID)) %>%
+  group_by(CTUID) %>%
+  summarize(Population_CT = sum(CompW1),
+            Respondents_CT = n()) %>% 
+         dplyr::select(CTUID, Population_CT, Respondents_CT)
+
+clf <- census_labour_force  %>%
+  left_join(da_cts, by = c("PRCDDA" = "DAUID")) %>% 
+  filter(!is.na(CTUID)) %>%
+  group_by(CTUID) %>%
+  summarise(lf_unweighted = n())
+
+vetting_ct <- vetting_ct  %>% 
+  left_join(clf, by = "CTUID")
+```
+
+Creating new files with the total DA population and the number of respondents:
+
+```{r creating-release}
+# Land Use Tables
+land_use_mode_CT_support <- land_use_CT %>% 
+  left_join(vetting_ct, by = c('CTUID' = 'CTUID')) %>% 
+  dplyr::select(CTUID, PwMode, labour_force, lf_unweighted, jobs, jobs_unweighted, PRUID, PCD, CMAUID, CMANAME, Population_CT, Respondents_CT)
+
+land_use_general_CT <- land_use_CT %>% 
+    group_by(CTUID) %>%
+    summarize(labour_force = sum(labour_force),
+              jobs = first(jobs),
+              jobs_unweighted = first(jobs_unweighted),
+              PRUID = first(PRUID), PCD = first(PCD), CMAUID = first(CMAUID), CMANAME = first(CMANAME))
+
+land_use_general_CT_support <- land_use_general_CT %>%
+  left_join(vetting_ct, by = c('CTUID' = 'CTUID')) %>% 
+  dplyr::select(CTUID, labour_force, lf_unweighted, jobs, jobs_unweighted, PRUID, PCD, CMAUID, CMANAME, Population_CT, Respondents_CT)
+```
+
+Apply the rules to avoid confidentiality risks for the land use table: 
+
+```{r}
+land_use_general_CT_support <- land_use_general_CT_support %>% 
+  filter(Population_CT >= 40, labour_force >= 10, jobs >= 10, lf_unweighted >= 5, jobs_unweighted >= 5) %>%
+  mutate(jobs_rounded = round(jobs / 5) * 5,
+         labour_force_rounded = round(labour_force / 5) * 5) %>% 
+  dplyr::select(CTUID,PCD,CMAUID,CMANAME,PRUID,labour_force,labour_force_rounded,lf_unweighted,jobs,jobs_rounded, jobs_unweighted,Population_CT,Respondents_CT)
+
+
+land_use_mode_CT_support <- land_use_mode_CT_support %>% 
+  filter(Population_CT >= 40, Respondents_CT >= 5, jobs >= 10, jobs_unweighted >= 5) %>%
+  mutate(jobs_rounded = round(jobs / 5) * 5,
+         labour_force_rounded = round(labour_force / 5) * 5) %>% 
+  dplyr::select(CTUID,PCD,CMAUID, CMANAME, PRUID,PwMode, labour_force, labour_force_rounded, jobs, jobs_rounded, jobs_unweighted)
+```
+
+
+## Maximum travel times
+
+Now, we will obtain the tables with maximum travel times by mode for each CMA/PCD:
+
+```{r}
+max_travel_times_pcd <- census %>%
+  filter(!is.na(PwMode)) %>%
+  group_by(PCD, PwMode) %>%
+  summarise(Max_duration = max(PWDUR))
+
+max_travel_times_cma <- census %>%
+  filter(!is.na(PwMode)) %>%
+  group_by(CMA, PwMode) %>%
+  summarise(Max_duration = max(PWDUR))
+```
+
+### Maximum travel time confidentiality vetting
+
+Applying the confidentiality rules:
+
+```{r}
+vetting_cma <- census %>%
+  group_by(CMA, PwMode) %>%
+  summarise(Population_CMA = sum(CompW1),
+            Respondents_CMA = n())
+
+vetting_pcd <- census %>%
+  group_by(PCD, PwMode) %>%
+  summarise(Population_PCD = sum(CompW1),
+            Respondents_PCD = n())
+```
+
+
+```{r}
+max_travel_times_cma_support <- max_travel_times_cma %>% 
+  left_join(vetting_cma, by = c('CMA' = 'CMA','PwMode' = 'PwMode')) %>%
+  filter(Population_CMA >= 40, Respondents_CMA >= 5) %>%
+  mutate(Max_duration_rounded = round(Max_duration / 5) * 5)
+
+max_travel_times_pcd_support <- max_travel_times_pcd %>% 
+  left_join(vetting_pcd, by = c('PCD' = 'PCD','PwMode' = 'PwMode')) %>%
+  filter(Population_PCD >= 40, Respondents_PCD >= 5) %>%
+  mutate(Max_duration_rounded = round(Max_duration / 5) * 5)
+```
+
+# Data export
+
+To finalize the methodology of this R markdown, we will export the
+processed data. 
+
+Creating the directory:
+
+```{r directory-export}
+diretorio_export <- paste0(here::here(),"/data-ignore-inputs/") #Update the address to export the data, if necessary
+dir.create(diretorio_export, recursive = TRUE)
+```
+
+Export of land use tables:
+
+```{r export-land-use-release}
+write.csv(land_use_general_CT_support[,c("CTUID","PCD","CMAUID", "CMANAME", "PRUID","labour_force_rounded","jobs_rounded")], paste0(diretorio_export, "land_use_general_CT_release.csv"), row.names=FALSE)
+
+write.csv(land_use_general_CT_support,
+          paste0(diretorio_export, "land_use_general_CT_support.csv"), row.names=FALSE)
+
+write.csv(land_use_mode_CT_support[,c("CTUID","PCD","CMAUID", "CMANAME", "PRUID","PwMode","labour_force_rounded","jobs_rounded")], paste0(diretorio_export, "land_use_mode_CT_release.csv"), row.names=FALSE)
+
+write.csv(land_use_mode_CT_support, paste0(diretorio_export, "land_use_mode_CT_support.csv"), row.names=FALSE)
+```
+
+Export of maximum travel times tables:
+
+```{r export-land-use-release}
+write.csv(max_travel_times_cma_support[,c("CMA","PwMode", "Max_duration_rounded")], paste0(diretorio_export, "max_travel_times_cma_release.csv"), row.names=FALSE)
+
+write.csv(max_travel_times_cma_support, paste0(diretorio_export, "max_travel_times_cma_support.csv"), row.names=FALSE)
+
+write.csv(max_travel_times_pcd_support[,c("PCD","PwMode", "Max_duration_rounded")], paste0(diretorio_export, "max_travel_times_pcd_release.csv"), row.names=FALSE)
+
+write.csv(max_travel_times_pcd_support, paste0(diretorio_export, "max_travel_times_pcd_support.csv"), row.names=FALSE)
+```
+

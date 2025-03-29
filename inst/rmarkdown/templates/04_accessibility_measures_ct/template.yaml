@@ -1,0 +1,4 @@
+name: 04_Accessibility_Measures_CT
+description: >
+  This R markdown enables to obtain accessibility measures for Canadian cities within a Census Metropolitan Area or Census Agglomeration, at the Census Tract spatial unit level.
+create_dir: FALSE

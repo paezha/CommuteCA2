@@ -1,0 +1,6 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^data-raw$
+^LICENSE\.md$
+^data-ignore-inputs$
+^README\.Rmd$

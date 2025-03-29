@@ -1,0 +1,26 @@
+Package: CommuteCA2
+Title: Standardized Methods for Accessibility Analysis in Canadian Research
+Version: 0.0.0.9000
+Authors@R: 
+    c(person("Bruno", "Dos Santos", , "dossanb@mcmaster.ca", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-6748-2038")),
+           person("Antonio", "Paez", , "paezha@mcmaster.ca", role = c("aut"),
+           comment = c(ORCID = "0000-0001-6912-9919")))
+Description: 
+  The main objective of the *CommuteCA* package is to develop standardized methods for
+  accessibility analysis in research, especially for studies using Statistics Canada surveys.
+  Among the available surveys, we focused our efforts on the 2021 Census of Population,
+  which contain valuable variables for transportation research. This package was
+  created with support from the office of the Research Data Center at McMaster University,
+  the Sherman Centre for Digital Scholarship and Mobilizing Justice.
+License: CC BY 4.0
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Depends: 
+    R (>= 3.5)
+LazyData: true
+Suggests: 
+    dplyr,
+    sf,
+    tmap

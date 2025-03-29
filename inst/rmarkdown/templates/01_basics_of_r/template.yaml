@@ -1,0 +1,4 @@
+name: 01_Basics_of_R
+description: >
+   This R markdown aims to provide a brief introduction of `R` language and the concepts of data.
+create_dir: FALSE

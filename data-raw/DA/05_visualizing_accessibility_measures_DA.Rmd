@@ -1,0 +1,460 @@
+---
+title: "Visualizing accessibility measures (_Dissemination area_ level)"
+author: "Bruno Santos & Antonio Paez"
+date: "`r Sys.Date()`"
+output:
+  tufte::tufte_html: default
+  tufte::tufte_handout:
+    citation_package: natbib
+    latex_engine: xelatex
+  tufte::tufte_book:
+    citation_package: natbib
+    latex_engine: xelatex
+bibliography: skeleton.bib
+link-citations: yes
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r clean-workspace, include=FALSE}
+# cleaning objects from the workspace 
+rm(list = ls())
+```
+
+```{r setup, include=FALSE}
+# layout configuration 
+library(tufte)
+library(knitr)
+options(htmltools.dir.version = FALSE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+# Introduction
+
+This Rmarkdown file is part of the
+[**CommuteCA**](https://github.com/dias-bruno/CommuteCA) package.
+This package was created in conjunction with the office of the
+[*Research Data Center* at *McMaster
+University*](https://rdc.mcmaster.ca/), the [*Sherman Centre for Digital
+Scholarship*](https://scds.ca/) and the [*Mobilizing
+Justice*](https://mobilizingjustice.ca/)[^1].
+
+[^1]: The Mobilizing Justice project is a multidisciplinary and
+    multi-sector collaboration with the objective of understand and
+    address transportation poverty in Canada and to improve the
+    well-being of Canadians at risk of transport poverty. The Social
+    Sciences and Humanities Research Council (SSRHC) has provided
+    funding for the project, which was created by an unprecedented
+    alliance of academics from various Canadian provinces and
+    institutions, transportation firms, and nonprofit organizations
+
+The [**CommuteCA**](https://github.com/dias-bruno/CommuteCA) R
+package was created to develop standardized methods for transport
+analysis in research, particularly for analysis using the [*2021 Census of
+Population*](https://www12.statcan.gc.ca/census-recensement/index-eng.cfm) from Statistics Canada. We focused our efforts on the [_Commuting Reference Guide_](https://www12.statcan.gc.ca/census-recensement/2021/ref/98-500/011/98-500-x2021011-eng.cfm),
+which provides valuable variables and information on commuting for the Canadian population aged 15 and older living in private households. 
+
+After obtaining the accessibility measures for our study area, in this
+`R` Markdown we will visualize the measure in form of maps.
+
+## Suggested Readings
+
+-   Soukhov, Anastasia, Antonio Paez, Christopher D Higgins, and Moataz
+    Mohamed. 2023."Introducing Spatial Availability, a
+    Singly-Constrained Measure of Competitive Accessibility." *Plos One*
+    18 (1): e0278468.
+-   Soukhov, A., Páez, A. (2024). Accessibility analysis for planning
+    applications (Report No. MJ-A2-0002). Mobilizing Justice.
+    <https://github.com/soukhova/MJ-Accessibility-Blogs>
+-   Pereira, Rafael H. M.; Herszenhut, Daniel. Introduction to urban
+    accessibility: a practical guide with R. Rio de Janeiro: Ipea, 2023.
+    152 p. ISBN: 978-65-5635-065-3. DOI:
+    <http://dx.doi.org/9786556350653>.
+-   Soukhov A, Tarriño-Ortiz J, Soria-Lara JA, Páez A (2024) Multimodal
+    spatial availability: A singly-constrained measure of accessibility
+    considering multiple modes. PLoS ONE 19(2): e0299077.
+    <https://doi.org/10.1371/journal.pone.0299077>
+
+## Data
+
+The data used in this R markdown is the output of the previous `R`
+markdown, in which we calculated accessibility and spatial availability
+for our study area. The methodology described here is applicable to the
+results obtained through the synthetic or original census survey.
+Additionally, we will use the dissemination areas (DA) geometry,
+available in this package, to plot maps of the study area.
+
+# Let's code!
+
+Load the packages:
+
+```{r load-packages}
+library(CommuteCA) 
+library(dplyr)# A Grammar of Data Manipulation 
+library(ggplot2) # Create Elegant Data Visualizations Using the Grammar of Graphics
+library(RColorBrewer) # color schemes for maps (and other graphics) designed
+library(scales) # for scaling data
+library(sf) # support for simple features, a standardized way to encode spatial vector data
+library(tmap) # thematic maps
+library(tidyr) # tidying data
+```
+
+Reading the tables:
+
+```{r}
+output_folder <- paste0(here::here(),"/data-raw/DA/output/PCD3520/")
+```
+
+
+```{r reading-tables}
+HT_mode <- read.csv(paste0(output_folder, "HT_mode_original.csv"))
+HT <- read.csv(paste0(output_folder, "HT_general_original.csv"))
+SA_mode <- read.csv(paste0(output_folder, "SA_mode_original.csv"))
+SA <- read.csv(paste0(output_folder, "SA_general_original.csv"))
+land_use_mode <- read.csv(paste0(output_folder, "land_use_mode_original_DA.csv"))
+land_use_general <- read.csv(paste0(output_folder, "land_use_general_original_DA.csv"))
+```
+
+Reading the DA geometries:
+```{r}
+data("dissemination_areas_ca21.rda")
+data("census_divisions_ca21.rda")
+```
+
+Selecting only the DA in our study area:
+
+```{r}
+DA <- dissemination_areas_ca21
+
+DA <- DA %>% 
+  filter(PCD %in% (unique(substr(unique(land_use_general$PRCDDA), 1,4)))) # It will select the dissemination areas with PCD codes within our study area
+
+CD <- census_divisions_ca21 
+
+CD <- CD %>% 
+  filter(CDUID %in% (unique(DA$PCD))) # It will select the census division of our study area
+```
+
+Merging the DA with the accessibility measures tables:
+
+```{r}
+names(DA)[1] <- "PRCDDA"
+
+mode_metrics_da <- 
+  expand.grid(PRCDDA = unique(DA$PRCDDA), PwMode = unique(HT_mode$PwMode)) %>%
+  full_join(DA, by = "PRCDDA") %>%
+  mutate(PRCDDA = as.numeric(PRCDDA)) %>%
+  full_join(HT_mode, by = c("PRCDDA", "PwMode")) %>%
+  full_join(SA_mode, by = c("PRCDDA", "PwMode")) %>% 
+  full_join(land_use_mode[,c("PRCDDA","PwMode","labour_force")], by = c("PRCDDA", "PwMode"))
+
+mode_metrics_da[is.na(mode_metrics_da$HT_im),]$HT_im <- 0
+mode_metrics_da[is.na(mode_metrics_da$SA_im),]$SA_im <- 0
+mode_metrics_da[is.na(mode_metrics_da$labour_force),]$labour_force <- 0
+
+mode_metrics_da_sf <- st_as_sf(mode_metrics_da, crs = st_crs(DA))
+```
+
+Preparing the tables to plot the maps:
+
+```{r}
+# Hansen
+HT_metrics_da <- DA %>% 
+  mutate(PRCDDA = as.numeric(PRCDDA)) %>%
+  full_join(HT, by = "PRCDDA") %>%
+  full_join(land_use_general, by ="PRCDDA")
+
+HT_metrics_da[is.na(HT_metrics_da$HT_i),]$HT_i <- 0
+HT_metrics_da[is.na(HT_metrics_da$labour_force),]$labour_force <- 0
+HT_metrics_da[is.na(HT_metrics_da$jobs),]$jobs <- 0
+
+# Spatial Availability
+SA_metrics_da <- DA %>% 
+  mutate(PRCDDA = as.numeric(PRCDDA)) %>%
+  full_join(SA, by = "PRCDDA") %>% 
+  full_join(land_use_general, by ="PRCDDA")
+
+SA_metrics_da[is.na(SA_metrics_da$SA_i),]$SA_i <- 0
+SA_metrics_da[is.na(SA_metrics_da$labour_force),]$labour_force <- 0
+SA_metrics_da[is.na(SA_metrics_da$jobs),]$jobs <- 0
+```
+
+## Visualizing the accessibility measures with maps
+
+Plotting the count of people within the labour force and count of job
+opportunities in each DA:
+
+```{r}
+labour_force_plot <- tm_shape(HT_metrics_da) + 
+   tm_polygons("labour_force",
+              style = "cont",
+              palette = "Reds",
+              title = " ",
+              border.col = NULL) + 
+  tm_shape(CD) +
+  tm_borders("black", lwd=0.5) +
+  tm_scale_bar(position = c("right", "bottom"))+
+  tm_compass(position = c("left", "top"), size=1.0)  + 
+  tm_layout(legend.outside = FALSE,
+            legend.position = c("left", "bottom"),
+            panel.labels = "Labour force")
+
+jobs_plot <- tm_shape(SA_metrics_da) + 
+   tm_polygons("jobs",
+              style = "cont",
+              palette = "Blues",
+              title = " ",
+              border.col = NULL) + 
+  tm_shape(CD) +
+  tm_borders("black", lwd=0.5) + 
+  tm_scale_bar(position = c("right", "bottom"))+
+  tm_compass(position = c("left", "top"), size=1.0)  + 
+  tm_layout(legend.outside = FALSE,
+            legend.position = c("left", "bottom"),
+            panel.labels = "Job opportunities")
+
+lf_jobs_DA <- tmap_arrange(labour_force_plot, jobs_plot, ncol = 2)
+
+tmap_save(lf_jobs_DA, 
+          paste0(output_folder,"lf_jobs_DA.jpg"), 
+          width = 20, 
+          height = 15, 
+          units = "cm", 
+          dpi = 300)
+
+lf_jobs_DA
+```
+
+Plotting the accessibility measures:
+
+```{r}
+ht_plot <- tm_shape(HT_metrics_da) + 
+   tm_polygons("HT_i",
+              style = "cont",
+              palette = "Purples",
+              title = " ",
+              border.col = NULL) + 
+  tm_shape(CD) +
+  tm_borders("black", lwd=0.5) + 
+  tm_scale_bar(position = c("right", "bottom"))+
+  tm_compass(position = c("left", "top"), size=1.0)  + 
+  tm_layout(legend.outside = FALSE,
+            legend.position = c("left", "bottom"),
+            panel.labels = "Hansen-type accessibility of jobs")
+
+sa_plot <- tm_shape(SA_metrics_da) + 
+   tm_polygons("SA_i",
+              style = "cont",
+              palette = "Oranges",
+              title = " ",
+              border.col = NULL) + 
+  tm_shape(CD) +
+  tm_borders("black", lwd=0.5) +
+  tm_scale_bar(position = c("right", "bottom"))+
+  tm_compass(position = c("left", "top"), size=1.0)  + 
+  tm_layout(legend.outside = FALSE,
+            legend.position = c("left", "bottom"),
+            panel.labels = "Spatial availability of jobs")
+
+HT_SA_DA <- tmap_arrange(ht_plot, sa_plot, ncol = 2)
+
+tmap_save(HT_SA_DA, 
+          paste0(output_folder,"HT_SA_DA.jpg"), 
+          width = 20, 
+          height = 15, 
+          units = "cm", 
+          dpi = 300)
+
+HT_SA_DA
+```
+
+Plotting the jobs per labour force, and the spatial availability per
+labour force:
+
+```{r}
+HT_metrics_da$jobs_per_lf <- HT_metrics_da$jobs / HT_metrics_da$labour_force
+
+HT_metrics_da <- HT_metrics_da %>%
+  mutate(jobs_per_lf = case_when(
+    jobs == 0 & labour_force == 0 ~ 0,
+    labour_force == 0 & jobs != 0 ~ jobs,  
+    TRUE ~ jobs_per_lf))
+
+jobs_per_labour_force <- tm_shape(HT_metrics_da) + 
+   tm_polygons("jobs_per_lf",
+              style = "fixed",
+              breaks = c(0, 0.5, 1, 2.5, 5, 10, Inf),
+              palette = "RdYlGn",
+              title = " ",
+              border.col = NULL) + 
+  tm_shape(CD) +
+  tm_borders("black", lwd=0.5) + 
+  tm_scale_bar(position = c("right", "bottom"))+
+  tm_compass(position = c("left", "top"), size=1.0)  + 
+  tm_layout(legend.outside = FALSE,
+            legend.position = c("left", "bottom"),
+            panel.labels = "Jobs per person in labour fource")
+
+SA_metrics_da$SA_per_lf <- SA_metrics_da$jobs / SA_metrics_da$labour_force
+
+SA_metrics_da <- SA_metrics_da %>%
+  mutate(SA_per_lf = case_when(
+    jobs == 0 & labour_force == 0 ~ 0,
+    labour_force == 0 & jobs != 0 ~ jobs,  
+    TRUE ~ SA_per_lf))
+
+SA_per_labour_force <- tm_shape(SA_metrics_da) + 
+   tm_polygons("SA_per_lf",
+              style = "fixed",
+              breaks = c(0, 0.5, 1, 2.5, 5, 10, Inf),
+              palette = "RdYlGn",
+              title = " ",
+              border.col = NULL) + 
+  tm_shape(CD) +
+  tm_borders("black", lwd=0.5) + 
+  tm_scale_bar(position = c("right", "bottom"))+
+  tm_compass(position = c("left", "top"), size=1.0)  + 
+  tm_layout(legend.outside = FALSE,
+            legend.position = c("left", "bottom"),
+            panel.labels = "Spatial availability per person in labour force")
+
+jobs_SA_per_lf_DA <- tmap_arrange(jobs_per_labour_force, SA_per_labour_force, ncol = 2)
+
+
+tmap_save(jobs_SA_per_lf_DA, 
+          paste0(output_folder,"jobs_SA_per_lf_DA.jpg"), 
+          width = 20, 
+          height = 15, 
+          units = "cm", 
+          dpi = 300)
+
+jobs_SA_per_lf_DA
+```
+
+## Visualizing the accessibility measures by transportation modes with maps
+
+Visualizing the total labour force by transportation mode:
+
+```{r}
+total_pop_by_mode_DA <- tm_shape(mode_metrics_da_sf) + 
+   tm_polygons("labour_force",
+              style = "cont",
+              palette = "Reds",
+              title = " ",
+              border.col = NULL) +  
+   tm_facets(by = "PwMode") +       
+   tm_scale_bar(position = c("right", "bottom")) +
+   tm_compass(position = c("left", "top"), size = 1.0) + 
+   tm_shape(CD) +
+   tm_borders("black", lwd=0.5)
+
+tmap_save(total_pop_by_mode_DA, 
+          paste0(output_folder,"total_pop_by_mode_DA.jpg"), 
+          width = 20, 
+          height = 20, 
+          units = "cm", 
+          dpi = 300)
+
+total_pop_by_mode_DA
+```
+
+Visualizing the Hansen-type accessibility by transportation mode:
+
+```{r}
+HT_by_mode_DA <- tm_shape(mode_metrics_da_sf) + 
+   tm_polygons("HT_im",
+              style = "cont",
+              palette = "Purples",
+              title = " ",
+              border.col = NULL) + 
+  tm_scale_bar(position = c("right", "bottom"))+
+  tm_compass(position = c("left", "top"), size=1.0)  + 
+  tm_facets(by="PwMode") + 
+   tm_shape(CD) +
+   tm_borders("black", lwd=0.5)
+
+tmap_save(HT_by_mode_DA, 
+          paste0(output_folder,"HT_by_mode_DA.jpg"), 
+          width = 20, 
+          height = 20, 
+          units = "cm", 
+          dpi = 300)
+
+HT_by_mode_DA
+```
+
+Visualizing the Spatial Availability by transportation mode:
+
+```{r}
+SA_by_mode_DA <- tm_shape(mode_metrics_da_sf) + 
+   tm_polygons("SA_im",
+              style = "cont",
+              palette = "Oranges",
+              title = " ",
+              border.col = NULL) + 
+  tm_scale_bar(position = c("right", "bottom"))+
+  tm_compass(position = c("left", "top"), size=1.0)  + 
+  tm_facets(by="PwMode") + 
+   tm_shape(CD) +
+   tm_borders("black", lwd=0.5)
+
+tmap_save(SA_by_mode_DA, 
+          paste0(output_folder,"SA_by_mode_DA.jpg"), 
+          width = 20, 
+          height = 20, 
+          units = "cm", 
+          dpi = 300)
+
+SA_by_mode_DA
+```
+
+Computing of the labour force by transportation mode:
+
+```{r}
+total_pop <- sum(land_use_mode$labour_force)
+total_SA <- sum(mode_metrics_da$SA_im)
+
+modal_SA_percents <- mode_metrics_da %>% 
+  group_by(PwMode) %>%
+  summarize(total_labour_fource = sum(labour_force),
+            SA_meam = mean(SA_im),
+            SA_sum = sum(SA_im),
+            perc_SA = sum(SA_im)/total_SA, 
+            perc_pop= sum(labour_force)/total_pop)
+
+modal_SA_long <- modal_SA_percents %>%
+  pivot_longer(cols = c(perc_SA, perc_pop), names_to = "perc", values_to = "measure")
+```
+
+Visualizing the share of labour force and spatial availability by
+transportation mode:
+
+```{r}
+Pop_SA_by_mode_DA <- ggplot(modal_SA_long, 
+      aes(x = perc, y = measure, fill = PwMode, label = measure %>% percent(accuracy = 0.1))) +
+      scale_x_discrete(labels = c(
+      "perc_SA" = paste("Spatial Availability\n by Mode\n(Total: ", round(total_SA), ")"),
+      "perc_pop" = paste("Population\n by Mode\n(Total: ", round(total_pop), ")") )) +
+  geom_col() + 
+  scale_fill_manual(values = c("#96CCD9","#49A695", "#A67360", "#8C3926")) + 
+  geom_text(position = position_stack(vjust=0.5), color="black") +
+  theme_classic() +
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank(),
+        axis.text.y = element_blank(),
+        axis.text = element_text(color="black"),
+        legend.position = "bottom",
+        legend.title = element_blank())
+
+
+ggsave(file = paste0(output_folder,"Pop_SA_by_mode_DA.jpg"), 
+       plot = Pop_SA_by_mode_DA,
+       width = 10, 
+       height = 10, 
+       units = "in", 
+       dpi = 300)
+
+Pop_SA_by_mode_DA
+```

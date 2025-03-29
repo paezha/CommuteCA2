@@ -1,0 +1,563 @@
+---
+title: "Impedance functions for Census Divisions"
+author: "Bruno Santos & Antonio Paez"
+date: "`r Sys.Date()`"
+output:
+  tufte::tufte_html: default
+  tufte::tufte_handout:
+    citation_package: natbib
+    latex_engine: xelatex
+  tufte::tufte_book:
+    citation_package: natbib
+    latex_engine: xelatex
+bibliography: skeleton.bib
+link-citations: yes
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r clean-workspace, include=FALSE}
+# cleaning objects from the workspace 
+rm(list = ls())
+```
+
+```{r setup, include=FALSE}
+# layout configuration 
+library(tufte) # not installed on this machine
+library(knitr) # A General-Purpose Package for Dynamic Report Generation in R
+options(htmltools.dir.version = FALSE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+# Introduction
+
+This Rmarkdown file is part of the
+[**CommuteCA**](https://github.com/dias-bruno/CommuteCA) package.
+This package was created in conjunction with the office of the
+[*Research Data Center* at *McMaster
+University*](https://rdc.mcmaster.ca/), the [*Sherman Centre for Digital
+Scholarship*](https://scds.ca/) and the [*Mobilizing
+Justice*](https://mobilizingjustice.ca/)[^1].
+
+[^1]: The Mobilizing Justice project is a multidisciplinary and
+    multi-sector collaboration with the objective of understand and
+    address transportation poverty in Canada and to improve the
+    well-being of Canadians at risk of transport poverty. The Social
+    Sciences and Humanities Research Council (SSRHC) has provided
+    funding for the project, which was created by an unprecedented
+    alliance of academics from various Canadian provinces and
+    institutions, transportation firms, and nonprofit organizations
+
+The main objective of the *CommuteCA* package is to develop
+standardized methods for transport analysis in research, especially for
+studies using Statistics Canada surveys. Among the available surveys, we
+focused our efforts on the [*2021 Census of
+Population*](https://www12.statcan.gc.ca/census-recensement/index-eng.cfm),
+which contain valuable variables for transportation research.
+
+This R markdown presents the methodology used to obtain the impedance functions for Canadian census divisions, available in *CommuteCA* package. Here, we record the method for obtaining `impedance_functions_pcd.rda` shared in the `CommuteCA/data/` folder.
+
+## Impedance functions
+
+Load the packages:
+
+```{r load-packages}
+library(dplyr)# A Grammar of Data Manipulation 
+library(fitdistrplus) # Help to Fit of a Parametric Distribution to Non-Censored or Censored Data
+library(scales) # Scale data column-wise in a computationally efficient way
+library(here) # enable easy file referencing in project-oriented workflows
+```
+
+Reading census data and creating a R data frame:
+
+```{r}
+files_address <- paste0(here(),
+                        "/data-ignore-inputs/census_test_v3.csv") # Census address
+```
+
+
+```{r load-census-data}
+census <- read.csv(files_address, header = TRUE)
+```
+
+| ⚠️**NOTE:**  If the code above did not run correctly, you probably are experiencing a file address error. Try to identify the correct address and update the chunk named `census-file-address` to continue.
+
+The original census dataset has a wide variety of attributes. However,
+we will only work with a selection of these variables. The next chunk
+selects only the variables previously chosen for our analysis, reducing
+the size of the dataframe and making data processing faster:
+
+```{r select-variables-census}
+census <- census %>% 
+          dplyr::select("PRCDDA",
+                 "Pr",
+                 "CMA",
+                 "PCD",
+                 "CompW1",
+                 "LBR_FORC",
+                 "PWDUR",
+                 "PwMode")
+```
+
+Renaming the variable `PwMode`:
+
+```{r rename-PwMode}
+census <- census %>% 
+  mutate(PwMode = 
+           case_when(PwMode > 0 & PwMode <= 2 ~ "Car/motor",
+                     PwMode == 9 ~ "Car/motor",
+                     PwMode >= 3 & PwMode <= 6  ~ "Transit",
+                     PwMode == 7  ~ "Walk",
+                     PwMode == 8  ~ "Bike"),
+         PwMode = factor(PwMode, levels = c("Bike", "Walk", "Car/motor", "Transit")),
+         CMA_type = 
+           case_when(CMA == 0 ~ 'Territories (outside CAs)',
+                     CMA > 0 & CMA < 996 ~ 'CMA/CA',
+                     CMA == 996 ~ 'Strong metropolitan influenced zone',
+                     CMA == 997 ~ 'Moderate metropolitan influenced zone',
+                     CMA == 998 ~ 'Weak metropolitan influenced zone',
+                     CMA == 999 ~ 'No metropolitan influenced zone'),
+          CMA_type = factor(CMA_type, levels = c("Territories (outside CAs)",
+                                                 "CMA/CA", 
+                                                 "Strong metropolitan influenced zone", 
+                                                 "Moderate metropolitan influenced zone",
+                                                 'Weak metropolitan influenced zone',
+                                                 'No metropolitan influenced zone')),
+         Pr = case_when(
+    Pr == 10 ~ "Newfoundland and Labrador",
+    Pr == 11 ~ "Prince Edward Island",
+    Pr == 12 ~ "Nova Scotia",
+    Pr == 13 ~ "New Brunswick",
+    Pr == 24 ~ "Quebec",
+    Pr == 35 ~ "Ontario",
+    Pr == 46 ~ "Manitoba",
+    Pr == 47 ~ "Saskatchewan",
+    Pr == 48 ~ "Alberta",
+    Pr == 59 ~ "British Columbia",
+    Pr == 60 ~ "Yukon",
+    Pr == 61 ~ "Northwest Territories",
+    Pr == 62 ~ "Nunavut",
+    TRUE ~ as.factor(Pr)))
+```
+
+According to the Census 2021, an 'Employed' person refers to those who,
+during the reference period, had a labour force status of
+'employed.'[^11]. In addition, the labour force is made up of the
+employed population and the unemployed population. This variable can
+assume the values:
+
+[^11]: Those who, during the reference period: (a) Did any work at all
+    at a job or business, that is, paid work in the context of an
+    employer-employee relationship, or self-employment. This also
+    includes persons who did unpaid family work, which is defined as
+    unpaid work contributing directly to the operation of a farm,
+    business or professional practice owned and operated by a related
+    member of the same household; or (b) Had a job but were not at work
+    due to factors such as their own illness or disability, personal or
+    family responsibilities, vacation or a labour dispute. This category
+    excludes persons not at work because they were on layoff or between
+    casual jobs, and those who did not then have a job (even if they had
+    a job to start at a future date).
+
+-   -3: Not Applicable, \< 15 years
+-   1: In Labour Force, Employed
+-   2: In Labour Force, Unemployed
+-   3: Not in Labour Force
+
+Each employee also declares in which DA their workplace is located. This
+information is important for the accessibility analysis, as it allows us
+to count the number of job opportunities in each DA.
+
+```{r employed-selection}
+# Employed respondents
+census_employed <- census %>% 
+                   filter(LBR_FORC == 1)
+```
+
+Now that we already have the travel times for each trip, we will try to create a impedance function that better
+describes the travel pattern of the respondents in each destination. To do so,
+we'll first create a function that based on the lowest Akaike
+Information Criterion (AIC)[^12], selects the better function between
+the distributions:
+[exponential](https://en.wikipedia.org/wiki/Exponential_distribution),
+[gamma](https://en.wikipedia.org/wiki/Gamma_distribution),
+[log-normal](https://en.wikipedia.org/wiki/Log-normal_distribution),
+[normal](https://en.wikipedia.org/wiki/Normal_distribution), and
+[uniform](https://en.wikipedia.org/wiki/Continuous_uniform_distribution).
+
+[^12]: The Akaike Information Criterion (AIC) estimates prediction error
+    and model quality for a given data set.
+
+We'll use the
+[{fitdistrplus}](https://cloud.r-project.org/web/packages/fitdistrplus/index.html)
+to determine the parameters that best fit the TLD. The Moment Matching Estimation (MME) fitting method and the Nelder-Mead
+direct optimization algorithm are used [@mullerdutang2015].
+
+```{r lowest-aic-function}
+# Select the distribution function based on the lowest AIC value
+lowest_aic <- function(values){
+  
+  min_aic <- min(values)
+  
+  if(!is.na(lnorm_$aic) & min_aic == lnorm_$aic){
+    choosen_f <- lnorm_
+  }
+  
+  else if  (!is.na(gamma_$aic) & min_aic == gamma_$aic){
+    choosen_f <- gamma_
+  }  
+  
+  else if  (!is.na(unif_$aic) & min_aic == unif_$aic){
+    choosen_f <- unif_
+  }  
+  
+  else if  (!is.na(norm_$aic) & min_aic == norm_$aic){
+    choosen_f <- norm_
+  }
+  else if  (!is.na(exp_$aic) & min_aic == exp_$aic){
+    choosen_f <- exp_
+  }
+  
+  return(choosen_f)
+}
+
+# Test the distributions
+test_distributions_weighted <- function(x, weights){
+  gamma_ <<- fitdistrplus::fitdist(data=x, "gamma", method="mme", weights = weights)
+  lnorm_ <<- fitdistrplus::fitdist(data=x, "lnorm", method="mme", weights = weights)
+  norm_ <<- fitdistrplus::fitdist(data=x, "norm", method="mme", weights = weights)
+  exp_ <<- fitdistrplus::fitdist(data=x, "exp", method="mme", weights = weights)
+  unif_ <<- fitdistrplus::fitdist(data=x, "unif", method="mme", weights = weights)
+  
+  values <- c(lnorm_$aic, gamma_$aic, unif_$aic, norm_$aic, exp_$aic)
+  values <- values[!is.na(values)]
+  
+  chosen_function <- lowest_aic(values)
+
+  return(chosen_function)
+}
+```
+
+for PCD: 
+
+```{r}
+pcd_impedance_functions <- data.frame()
+
+for(division in unique(census_employed$PCD)){
+  
+  for(mode in unique(census_employed[census_employed$PCD == division & !is.na(census_employed$PwMode), ]$PwMode)){
+      
+       census_subset <-  census_employed %>%
+         filter(PCD == division, PwMode == mode, PWDUR > 0)
+        
+        if(nrow(census_subset) > 1){
+          # print(paste("Calculating the best function for the census subdivision ", 
+          #           division, " and ",  
+          #           mode,
+          #           " transportaion mode."))
+  
+          assign(paste0("f_",division, "_", mode),
+               test_distributions_weighted(
+               x = census_subset$PWDUR,
+               weights = round(census_subset$CompW1)))
+          
+         current_function <- get(paste0("f_",division, "_", mode))
+         
+         # lnorm impedance 
+        if(current_function$distname == "lnorm"){
+             fname <-  current_function$distname
+             estimate_1 <- current_function$estimate[1]
+             estimate_2 <- current_function$estimate[2]
+            }
+            
+            # Unif impedance 
+            else if(current_function$distname == "unif") {
+             fname <-  current_function$distname
+             estimate_1 <- 0
+             estimate_2 <- current_function$estimate[2]
+             
+            # Exponential impedance 
+            } else if(current_function$distname == "exp") {
+             fname <-  current_function$distname
+             estimate_1 <- current_function$estimate
+             estimate_2 <- 0 
+             
+                # Gamma impedance 
+            } else if (current_function$distname == "gamma"){  
+             fname <-  current_function$distname
+             estimate_1 <- current_function$estimate[1]
+             estimate_2 <- current_function$estimate[2]
+             
+            # Norm impedance 
+            } else if (current_function$distname == "norm"){
+             fname <-  current_function$distname
+             estimate_1 <- current_function$estimate[1]
+             estimate_2 <- current_function$estimate[2]
+            }
+            
+        df_f <- data.frame(
+          "PCD" = division, 
+          "Pr" = census_subset$Pr[1],
+          "CMA" = census_subset$CMA[1],
+          "PwMode" = mode, 
+          "distribution" = fname,
+          "est_1" = estimate_1,
+          "est_2" = estimate_2,
+          "loglike"  = current_function$loglik,
+          "AIC"  = current_function$aic,
+          "BIC"  = current_function$bic,
+          "n" = current_function$n,
+          "Weighted_sum" = sum(current_function$weights))
+        
+        pcd_impedance_functions <- rbind(pcd_impedance_functions, df_f)
+        
+        rownames(pcd_impedance_functions) <- NULL
+        
+        }
+    }
+}
+```
+
+for CMA: 
+
+```{r}
+cma_impedance_functions <- data.frame()
+
+for(division in unique(census_employed$CMA)){
+  
+  for(mode in unique(census_employed[census_employed$CMA == division & !is.na(census_employed$PwMode), ]$PwMode)){
+      
+       census_subset <-  census_employed %>%
+         filter(CMA == division, PwMode == mode, PWDUR > 0)
+        
+        if(nrow(census_subset) > 1){
+          # print(paste("Calculating the best function for the CMA ", 
+          #           division, " and ",  
+          #           mode,
+          #           " transportaion mode."))
+  
+          assign(paste0("f_",division, "_", mode),
+               test_distributions_weighted(
+               x = census_subset$PWDUR,
+               weights = round(census_subset$CompW1)))
+          
+         current_function <- get(paste0("f_",division, "_", mode))
+         
+         # lnorm impedance 
+        if(current_function$distname == "lnorm"){
+             fname <-  current_function$distname
+             estimate_1 <- current_function$estimate[1]
+             estimate_2 <- current_function$estimate[2]
+            }
+            
+            # Unif impedance 
+            else if(current_function$distname == "unif") {
+             fname <-  current_function$distname
+             estimate_1 <- 0
+             estimate_2 <- current_function$estimate[2]
+             
+            # Exponential impedance 
+            } else if(current_function$distname == "exp") {
+             fname <-  current_function$distname
+             estimate_1 <- current_function$estimate
+             estimate_2 <- 0 
+             
+                # Gamma impedance 
+            } else if (current_function$distname == "gamma"){  
+             fname <-  current_function$distname
+             estimate_1 <- current_function$estimate[1]
+             estimate_2 <- current_function$estimate[2]
+             
+            # Norm impedance 
+            } else if (current_function$distname == "norm"){
+             fname <-  current_function$distname
+             estimate_1 <- current_function$estimate[1]
+             estimate_2 <- current_function$estimate[2]
+            }
+            
+        df_f <- data.frame(
+          "CMA" = division, 
+          "Pr" = census_subset$Pr[1],
+          "PwMode" = mode, 
+          "distribution" = fname,
+          "est_1" = estimate_1,
+          "est_2" = estimate_2,
+          "loglike"  = current_function$loglik,
+          "AIC"  = current_function$aic,
+          "BIC"  = current_function$bic,
+          "n" = current_function$n,
+          "Weighted_sum" = sum(current_function$weights))
+        
+        cma_impedance_functions <- rbind(cma_impedance_functions, df_f)
+        
+        rownames(cma_impedance_functions) <- NULL
+        
+        }
+    }
+}
+```
+
+
+for Province: 
+
+```{r}
+pr_impedance_functions <- data.frame()
+
+for(division in unique(census_employed$Pr)){
+  
+  for(type in unique(census_employed[census_employed$Pr == division, ]$CMA_type)){
+  
+  for(mode in unique(census_employed[census_employed$CMA_type == type &
+                                     census_employed$Pr == division &
+                                     !is.na(census_employed$PwMode), ]$PwMode)){
+      
+       census_subset <-  census_employed %>%
+         filter(Pr == division, PwMode == mode, PWDUR > 0, CMA_type == type)
+        
+        if(nrow(census_subset) > 1){
+          print(paste("Calculating the best function for the Province ", 
+                    division, ", considering ", type, " and ",   
+                    mode, " transportaion mode."))
+  
+          assign(paste0("f_",division, "_", mode),
+               test_distributions_weighted(
+               x = census_subset$PWDUR,
+               weights = round(census_subset$CompW1)))
+          
+         current_function <- get(paste0("f_",division, "_", mode))
+         
+         # lnorm impedance 
+        if(current_function$distname == "lnorm"){
+             fname <-  current_function$distname
+             estimate_1 <- current_function$estimate[1]
+             estimate_2 <- current_function$estimate[2]
+            }
+            
+            # Unif impedance 
+            else if(current_function$distname == "unif") {
+             fname <-  current_function$distname
+             estimate_1 <- 0
+             estimate_2 <- current_function$estimate[2]
+             
+            # Exponential impedance 
+            } else if(current_function$distname == "exp") {
+             fname <-  current_function$distname
+             estimate_1 <- current_function$estimate
+             estimate_2 <- 0 
+             
+                # Gamma impedance 
+            } else if (current_function$distname == "gamma"){  
+             fname <-  current_function$distname
+             estimate_1 <- current_function$estimate[1]
+             estimate_2 <- current_function$estimate[2]
+             
+            # Norm impedance 
+            } else if (current_function$distname == "norm"){
+             fname <-  current_function$distname
+             estimate_1 <- current_function$estimate[1]
+             estimate_2 <- current_function$estimate[2]
+            }
+            
+        df_f <- data.frame(
+          "Pr" = division,
+          "CMA_type" = type,
+          "PwMode" = mode, 
+          "distribution" = fname,
+          "est_1" = estimate_1,
+          "est_2" = estimate_2,
+          "loglike"  = current_function$loglik,
+          "AIC"  = current_function$aic,
+          "BIC"  = current_function$bic,
+          "n" = current_function$n,
+          "Weighted_sum" = sum(current_function$weights))
+        
+        pr_impedance_functions <- rbind(pr_impedance_functions, df_f)
+        
+        rownames(pr_impedance_functions) <- NULL
+        
+        }
+  }
+}
+}
+```
+
+## Confidentiality vetting
+
+Confidentiality vetting is the process of reviewing the results to be released by the Research Data Center to ensure that confidentiality risks for StatCan respondents are minimized. 
+
+The following rules apply to our results:
+
+- Statistics must not be released for identifiable areas with less than 40 persons ($\sum{CompW1} ≥ 40$).
+- Statistics must be based on at least 5 respondents ($n > 5$), with a sum of weights of at least 10 ($\sum{CompW1} > 10$), to be releasable. 
+
+The block above checks the total population of each geographic unit:
+
+```{r da-vetting}
+vetting_pcd <- census %>%
+  group_by(PCD) %>%
+  summarise(pop_area = sum(CompW1))
+
+vetting_cma <- census %>%
+  group_by(CMA) %>%
+  summarise(pop_area = sum(CompW1))
+
+vetting_pr <- census %>%
+  group_by(Pr) %>%
+  summarise(pop_area = sum(CompW1))
+
+pcd_impedance_functions <- pcd_impedance_functions %>% 
+  left_join(vetting_pcd, by = 'PCD') 
+
+cma_impedance_functions <- cma_impedance_functions %>% 
+  left_join(vetting_cma, by = 'CMA') 
+
+pr_impedance_functions <- pr_impedance_functions %>% 
+  left_join(vetting_pr, by = 'Pr') 
+```
+
+Creating new files with the total unit population:
+
+```{r creating-release}
+pcd_impedance_functions <- pcd_impedance_functions %>% 
+  filter(n > 4, Weighted_sum > 9, pop_area > 40)
+
+cma_impedance_functions <- cma_impedance_functions %>% 
+  filter(n > 4, Weighted_sum > 9, pop_area > 40)
+
+pr_impedance_functions <- pr_impedance_functions %>% 
+  filter(n > 4, Weighted_sum > 9, pop_area > 40)
+```
+
+
+# Data export
+
+To finalize the methodology of this R markdown, we will export the
+processed data. 
+
+Creating the directory:
+
+```{r directory-export}
+diretorio_export <- paste0(here::here(),"/data-ignore-inputs/") #Update the address to export the data, if necessary
+dir.create(diretorio_export, recursive = TRUE)
+```
+
+Exporting tables:
+
+```{r export-land-use-release}
+# PCD
+write.csv(pcd_impedance_functions %>% dplyr::select(-pop_area), paste0(diretorio_export, "pcd_impedance_functions_release.csv"), row.names=FALSE)
+
+write.csv(pcd_impedance_functions, paste0(diretorio_export, "pcd_impedance_functions_support.csv"), row.names=FALSE)
+
+# CMA
+write.csv(cma_impedance_functions %>% dplyr::select(-pop_area), paste0(diretorio_export, "cma_impedance_functions_release.csv"), row.names=FALSE)
+
+write.csv(cma_impedance_functions, paste0(diretorio_export, "cma_impedance_functions_support.csv"), row.names=FALSE)
+
+# PR 
+write.csv(pr_impedance_functions %>% dplyr::select(-pop_area), paste0(diretorio_export, "pr_impedance_functions_release.csv"), row.names=FALSE)
+
+write.csv(pr_impedance_functions, paste0(diretorio_export, "pr_impedance_functions_support.csv"), row.names=FALSE)
+```
+

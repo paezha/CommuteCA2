@@ -1,0 +1,1050 @@
+---
+title: "Exploratory Data Analysis"
+author: "Bruno Santos & Antonio Paez"
+date: "`r Sys.Date()`"
+output:
+  tufte::tufte_html: default
+  tufte::tufte_handout:
+    citation_package: natbib
+    latex_engine: xelatex
+  tufte::tufte_book:
+    citation_package: natbib
+    latex_engine: xelatex
+bibliography: skeleton.bib
+link-citations: yes
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r clean-workspace, include=FALSE}
+# cleaning objects from the workspace 
+rm(list = ls())
+```
+
+```{r setup, include=FALSE}
+# layout configuration 
+library(tufte)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+options(htmltools.dir.version = FALSE)
+```
+
+# Introduction
+
+This Rmarkdown file is part of the
+[**CommuteCA**](https://github.com/dias-bruno/CommuteCA) package.
+This package was created in conjunction with the office of the
+[*Research Data Center* at *McMaster
+University*](https://rdc.mcmaster.ca/), the [*Sherman Centre for Digital
+Scholarship*](https://scds.ca/) and the [*Mobilizing
+Justice*](https://mobilizingjustice.ca/)[^1].
+
+[^1]: The Mobilizing Justice project is a multidisciplinary and
+    multi-sector collaboration with the objective of understand and
+    address transportation poverty in Canada and to improve the
+    well-being of Canadians at risk of transport poverty. The Social
+    Sciences and Humanities Research Council (SSRHC) has provided
+    funding for the project, which was created by an unprecedented
+    alliance of academics from various Canadian provinces and
+    institutions, transportation firms, and nonprofit organizations
+
+The [**CommuteCA**](https://github.com/dias-bruno/CommuteCA) R
+package was created to develop standardized methods for transport
+analysis in research, particularly for analysis using the [*2021 Census of
+Population*](https://www12.statcan.gc.ca/census-recensement/index-eng.cfm) from Statistics Canada. We focused our efforts on the [_Commuting Reference Guide_](https://www12.statcan.gc.ca/census-recensement/2021/ref/98-500/011/98-500-x2021011-eng.cfm),
+which provides valuable variables and information on commuting for the Canadian population aged 15 and older living in private households. 
+
+This R markdown aims to provide a brief introduction to exploratory data
+analysis (EDA). This notebook is an updated and reduced version of the
+computational notebooks available in the
+[*edashop*](https://paezha.github.io/edashop/) package. The *edashop*
+package is an open educational resource to teach a workshop on EDA using
+R and computational notebooks, created and maintained by Dr. Antonio
+Paez, co-author of the *CommuteCA* package. For those interested in
+learning EDA in more deep, we suggest installing and studying the
+*edashop* package.
+
+In this first R markdown, we will learn about:
+
+-   Descriptive statistics
+-   Visualization techniques
+
+# Preliminaries
+
+Clear the workspace from *all* objects:
+
+```{r}
+rm(list = ls())
+```
+
+Load packages. Remember, packages are units of shareable code that
+augment the functionality of base `R`. For this session, the following
+packages are used:
+
+```{r}
+library(CommuteCA)
+library(corrr) # Correlations in R
+library(dplyr) # A Grammar of Data Manipulation
+library(janitor) # Simple Tools for Examining and Cleaning Dirty Data
+library(ggplot2) # Create Elegant Data Visualizations Using the Grammar of Graphics
+library(ggridges) # Ridgeline Plots in 'ggplot2'
+library(readr) # Read csv files
+library(skimr) # Summary statistics about variables in data frames
+library(here) # enable easy file referencing in project-oriented workflows
+```
+
+We will also load the following data frames for this session. The
+dataset used in this demonstration is test data produced to
+replicate the variables available in the original Census of Population.
+The test data contains 200,000 rows and 17 columns. As in the
+original census data, each row refers to a respondent and each column
+refers to a variable[^2].\
+The creation of test data was necessary because the surveys
+provided by Statistics Canada are confidential and cannot be accessed
+outside of a Research Data Center.
+
+[^2]: You can check out more information about the Census on the
+    [Dictionary
+    website](https://www12.statcan.gc.ca/census-recensement/2021/ref/dict/index-eng.cfm).
+
+If you want to work with the original Census dataset, the process for performing exploratory data analysis will be the same as for the test data, except that you will have to update the address of the file in the chunk[^3] called *load-census-data*.
+
+[^3]: A code chunk is an executable part of the R code.
+
+For this R markdown, we'll use the following variables[^4]:
+
+[^4]: The explanation of each variable can be found in the [*2021 Census
+    of Population's
+    website*](https://www12.statcan.gc.ca/census-recensement/index-eng.cfm).
+
+|                    |                                                                                                                                 |
+|-------------------------|----------------------------------------------|
+| **Variable**       | **Description**                                                                                                                 |
+| PRCDDA             | Refers to the dissemination area (DA) of current residence.                                                                     |
+| Pr                 | Refers to the province or territory of current residence.                                                                       |
+| CMA                | Census metropolitan area or census agglomeration of current residence.                                                          |
+| PCD                | Census division of current residence.                                                                                           |
+| CompW1             | Weight for the households and dwellings universes.                                                                              |
+| LBR_FORC           | This variable refers to whether a person was employed, unemployed or not in the labour force.                                   |
+| CfInc              | Total income of census family (sum of the total incomes of all members of that family).                                         |
+| CFCNT              | Census family size (numbers of persons).                                                                                        |
+| CF_PnCF_NumEarners | Number of earners in census family.                                                                                             |
+| PWDA               | Place of work dissemination area.                                                                                               |
+| PWPR               | Place of work province.                                                                                                         |
+| PWCMA              | Census metropolitan area or census agglomeration of place of work.                                                              |
+| PWCD               | Place of work census division.                                                                                                  |
+| PWDUR              | Commuting duration, it refers to the length of time, in minutes, usually required by a person to travel to their place of work. |
+| PWDist             | Distance (straight-line) from home to work.                                                                                     |
+| PwMode             | Main mode of commuting' refers to the main mode of transportation a person uses to travel to their place of work.               |
+
+We will use the function `read_csv()`to read the sheets in the format
+.csv . This is one of the format used by Research Data Centres to store
+their surveys.[^5]
+
+[^5]: \``Other formats also used are: `SAS`, `Stata` and `SPSS`. For this
+    case, use the
+    {[foreign](https://cran.r-project.org/web/packages/foreign/index.html)}
+    package.
+
+The next chunk assigns the file address of the survey to the
+`census_address` variable. As mentioned before, for this demonstration we
+will use the test version of the survey. If you want to use the
+original survey, please remember to ***update*** the address in the
+chunk below. You may also need to update the file address if you opened
+this R markdown in another project or if the test data is stored in
+a different folder that does not follow the pattern of the `COMMUCECA21`
+package.
+
+```{r census-file-address}
+census_address <- paste0(here::here(), "/data-raw/DA/input/test/census_test_v3.csv") 
+census <- read_csv(census_address)
+```
+
+Or if you have installed *CommuteCA*, you can access the test data by running:
+
+```{r reading-census}
+#data(census_test_data)
+#census <- census_test_data
+```
+
+| ⚠️**NOTE:** If the code above did not run correctly, you probably are experiencing a file address error. Try to identify the correct address and update the chunk named `census-file-address` to continue.
+
+# Exploratory Data Analysis (EDA)
+
+Exploratory Data Analysis (EDA) involves examining data to uncover its
+inherent features without relying on preconceived assumptions. [John W.
+Tukey](https://en.wikipedia.org/wiki/John_Tukey) described EDA as
+detective work, where the goal is to discover key evidence and patterns
+before testing hypotheses, similar to the confirmation of evidence in a trial.
+
+Effective EDA focuses on:
+
+1.  Simplifying descriptions for better cognitive processing.
+2.  Exploring deeper aspects of the data to enhance understanding.
+
+The primary tools for EDA are descriptive statistics and visualization
+techniques, with a particular focus on using appropriate descriptors for
+different types of data.
+
+# Descriptive statistics
+
+In the previous session we used the function `summary()` from base `R`
+to obtain quick summaries of data. These summaries already provided some
+key information about the data, including descriptive statistics. For
+example, for our census table we have[^6]:
+
+[^6]: We use a variable named `selected_columns` to selected some
+    columns in the census survey. This is needed because, if you are
+    using the original census survey, the full table summary can be very
+    slow and will require a lot of RAM from your computer.
+
+```{r}
+selected_columns <-c("Frame_ID", "PRCDDA", "Pr","CMA","PCD","CompW1","LBR_FORC","CfInc","CFCNT","CF_PnCF_NumEarners","PWDA","PWPR","PWCD","PWCMA","PWDUR","PWDist","PwMode")
+
+census <-  census[,selected_columns]
+
+summary(census)
+```
+
+The summary already gives us a important piece of information: in many
+variables, the value `-3` appears as the minimum value. However, this
+value does not means the minimum value of this variables is `-3` (how
+could we explain a distance value equal to `-3`?). The `-3`, in this
+case, means that the variable does not apply to that respondent, and is
+a pattern used by Statistics Canada to signalize a not applicable
+situation to that respondent.
+
+For instance, one person who does not have a job will present a `-3` for
+the variable related to place of work in the province, showing a
+situation not applicable to that respondent.
+
+The summary already shows that the variables are not classified
+correctly. The variable `LBR_FORC`, for instance, is a nominal
+categorical variable, but it is presented as a numeric variable.
+
+This summary quickly shows why it is important to apply EDA techniques
+before performing more sophisticated analyses: the data can be organized
+in a way that will require pre-processing and manipulation; or having
+patterns and formats established by the creators that are important to
+know.
+
+## Pre-processing data
+
+As said before, some of these variables should have been read as a
+factor variable. The next chunk corrects this problem by turning them
+into factors:
+
+```{r factoring-variables}
+census <- census %>% 
+          mutate_at(c("Frame_ID",
+                 "PRCDDA",
+                 "Pr",
+                 "CMA",
+                 "PCD",
+                 "PWDA",
+                 "PWPR",
+                 "PWCMA",
+                 "PWCD"), as.factor)
+```
+
+View summary statistics from the data frame:
+
+```{r census-summary}
+summary(census)
+```
+
+According to the census code book, the variable `PwMode` has the
+following possible values:
+
+-   -3: Not applicable.
+-   1: Car, truck or van - as a driver.
+-   2: Car, truck or van - as a passenger.
+-   3: Bus.
+-   4: Subway or elevated rail.
+-   5: Light rail, streetcar or commuter train.
+-   6: Passenger ferry.
+-   7: Walked.
+-   8: Bicycle.
+-   9: Motorcycle, scooter or moped.
+-   10: Other method.
+
+We'll rename the travel modes to facilitate the readability of the data.
+Additionally, we'll remove from our analysis travel modes signed as
+'Other methods':
+
+```{r factoring-mode}
+census <- census  %>% 
+          filter(PwMode < 10) %>% 
+          mutate(PwMode = case_when(
+                  PwMode == -3 ~ "Not applicable",
+                  PwMode > 0 & PwMode <= 2 ~ "Car/motor",
+                  PwMode == 9 ~ "Car/motor",
+                  PwMode >= 3 & PwMode <= 6  ~ "Transit",
+                  PwMode == 7  ~ "Walk",
+                  PwMode == 8  ~ "Bike"),
+         
+          PwMode = factor(PwMode, levels = c("Bike", "Walk", "Car/motor", "Transit", "Not applicable")))
+```
+
+Now let's visualize the `PwMode` summary:
+
+```{r}
+summary(census$PwMode)
+```
+
+A not applicable situation for this variable is when the respondent is
+not commuting to go to work (unemployed or a person out of the labour
+force, a person who works from home and therefore does not need to
+commute).
+
+According to the census documentation, the `LBR_FORC` can have the
+following values:
+
+-   -3: Not Applicable, \< 15 years
+-   1: In Labour Force, Employed
+-   2: In Labour Force, Unemployed
+-   3: Not in Labour Force
+
+In this case, we can update this variable as bellow:
+
+```{r factoring-LBR_FORC}
+census <- census  %>% 
+          mutate(LBR_FORC = case_when(
+                  LBR_FORC == -3 ~ "Not applicable",
+                  LBR_FORC == 1  ~ "Employed",
+                  LBR_FORC == 2  ~ "Unemployed",
+                  LBR_FORC == 3 ~ "Not in LF"),
+         
+          LBR_FORC = factor(LBR_FORC, levels = c("Employed", "Unemployed", "Not in LF", "Not applicable")))
+```
+
+Next chunk update all `-3` values to `Not applicable` for the other
+categorical variables:
+
+```{r}
+census[,c('PWDA', 'PWPR', 'PWCD', 'PWCMA')] <- census[,c('PWDA', 'PWPR', 'PWCD', 'PWCMA')] %>%
+  mutate_all(~ ifelse(. == -3, 'Not applicable', .))
+```
+
+Finishing the pre-processing step, to increase the readability of the
+table, we will update the name of the provinces of the respondents:
+
+```{r}
+census <- census %>%
+  mutate(Pr = case_when(
+    Pr == 10 ~ "Newfoundland and Labrador",
+    Pr == 11 ~ "Prince Edward Island",
+    Pr == 12 ~ "Nova Scotia",
+    Pr == 13 ~ "New Brunswick",
+    Pr == 24 ~ "Quebec",
+    Pr == 35 ~ "Ontario",
+    Pr == 46 ~ "Manitoba",
+    Pr == 47 ~ "Saskatchewan",
+    Pr == 48 ~ "Alberta",
+    Pr == 59 ~ "British Columbia",
+    Pr == 60 ~ "Yukon",
+    Pr == 61 ~ "Northwest Territories",
+    Pr == 62 ~ "Nunavut",
+    TRUE ~ as.factor(Pr)
+  ))
+```
+
+Visualizing the summary statistics:
+
+```{r}
+summary(census)
+```
+
+## Appropriate summary statistics by scale of measurement
+
+Recall from the previous session that not all operations are defined for
+all scales of measurement. For example, variables in the nominal scale
+could be compared using only boolean operators "==" (exactly equal to)
+and "!=" (not equal to). No arithmetic operations are defined for
+ordinal data. And division and multiplication are not appropriate for
+interval data.
+
+This has implications for the kind of statistics that are appropriate by
+scale of measurement.
+
+Consider a commonly used summary statistic: the mean of a variable. The
+mean is defined as follows: 
+
+$$\bar{x} = \frac{x_1 + x_2 + \cdots + x_n}{n} = \frac{1}{n}\sum_{i-1}^n x_i$$
+
+Is it appropriate to calculate the mean of a categorical variable? What
+is the meaning of two cars plus one bicycle divided by three?
+
+To understand which summary statistics are appropriate, we must know
+what various summary statistics aim to represent, and how they are
+calculated.
+
+### Central tendency
+
+Summary statistics help in reducing information and provide different
+perspectives on data. *Central tendency* measures summarize a
+distribution by identifying a "typical" value, as finding the
+center of mass of the data. For instance, given a sequence of
+quantitative values, such as:
+
+```{r}
+x <- c(20, 30, 32, 34, 41, 41, 45, 46, 48, 51, 53, 54, 54, 56, 57, 58, 58, 59, 
+  60, 61, 64, 65, 65, 69, 71, 74, 77, 79, 88, 94)
+```
+
+This sequence can be visualized in a
+[stem-and-leaf](https://en.wikipedia.org/wiki/Stem-and-leaf_display)
+display to understand where the distribution is "heavier," indicating
+the center of mass. Central tendency measures help identify this typical
+value:
+
+| stem | leaf      |
+|------|-----------|
+| 2    | 0         |
+| 3    | 024       |
+| 4    | 11568     |
+| 5    | 134467889 |
+| 6    | 014559    |
+| 7    | 1479      |
+| 8    | 8         |
+| 9    | 4         |
+
+For nominal variables, where categories lack a meaningful order, the
+concept of central tendency still applies, though the methods differ
+from those used for ordered or quantitative data.
+
+### Mode
+
+The mode is the most frequent value in a distribution and is useful for
+both nominal and ordinal variables. To find the mode, we can count the
+occurrences of each value. For example, using the `tabyl()` function from
+the {[janitor](http://sfirke.github.io/janitor/)} package, which
+facilitates pipe-friendly tabulations, we can determine the mode of the
+variable `LBR_FORC` in census table. Here's how you can perform this
+task:
+
+```{r}
+census |> 
+  tabyl(LBR_FORC)
+```
+
+The output shows that the `Employed` category is the mode of the
+`LBR_FORC` variable (considering the test data), representing
+around 75% of the cases.
+
+You can obtain the mode of a variable through the `R` built-in function:
+
+```{r}
+mode(census$LBR_FORC)
+```
+
+### Median
+
+The median is the quantile that splits a quantitative variables in two
+parts of equal size, the bottom 50% and the top 50% of values.
+
+To check the median value of total income of the family, we can use the `R` built-in function `median()`:
+
+```{r}
+median(census$CfInc)
+```
+### Mean
+
+The mean is probably the best known measure of central tendency, and it
+is defined as the sum of the values divided by the number of
+observations. Since it involves arithmetic operations it is not
+appropriate for categorical variables. The mean of quantitative
+variables is reported by `summary()` and `skim()`.
+
+To check the mean value of total income of the family, we can use the `R` built-in function `()`:
+
+```{r}
+mean(census$CfInc)
+```
+
+### Spread
+
+Another important property of a distribution of values is how wide or
+compact it is. Compare the two steam-and-leaf tables below.
+
+| stem | leaf      |
+|------|-----------|
+| 2    | 0         |
+| 3    | 024       |
+| 4    | 11568     |
+| 5    | 134467889 |
+| 6    | 014559    |
+| 7    | 1479      |
+| 8    | 8         |
+| 9    | 4         |
+
+| stem | leaf  |
+|------|-------|
+| 1    | 48    |
+| 2    | 08    |
+| 3    | 024   |
+| 4    | 1156  |
+| 5    | 13789 |
+| 6    | 01459 |
+| 7    | 149   |
+| 8    | 468   |
+| 9    | 45    |
+| 10   | 7     |
+
+The first stem-and-leaf table is more "compact": the tails of the
+distribution are closer together and the center of mass is "heavier",
+compared to the second table, that has a wider spread.
+
+### Minimum and maximum
+
+The minimum and maximum values give an idea of how spread the
+distribution is. In the first of the preceding tables the minimum is
+$20$ and the maximum is $94$. In the second table, the minimum is $14$
+and the maximum is $107$. The *range* is the difference between the
+maximum and the minimum:
+
+```{r}
+94 - 20
+107 - 14
+```
+
+The second distribution is more spread.
+
+### Inter-quartile range
+
+The inter-quartile range is similar to the range, but instead of being
+calculated using the minimum and maximum values of the distribution, it
+uses the third and first quartiles.
+[Quartiles](https://en.wikipedia.org/wiki/Quartile) are a form of
+quantile that divides a sequence of values in four equal parts, so the
+second quantile represents the value that separates the lowest 25% of
+the sample from the remaining 75%, and the third quantile is the value
+that splits the highest 25% of the sample from the lowest 75%.
+
+If we skim the data, we see that the quartiles are reported ("p25" is
+the first quartile and "p75" is the third). The inter-quartile range can
+be calculated using those values.
+
+```{r}
+census |>
+  skim(CfInc)
+```
+
+```{r}
+149558.3 - 44933.87
+```
+
+We can *pull* the variable from the data frame, and use function `IQR()`
+to directly calculate the inter-quartile range. From the skim of the
+variable we know that there are some missing (NA) records that need to
+be removed, hence `na.rm = TRUE`:
+
+```{r}
+census |>
+  pull(CfInc) |>
+  IQR(na.rm = TRUE)
+```
+
+The inter-quartile range involves an arithmetic operation, which is why
+it is not an appropriate statistic for categorical variables.
+
+### Variance and standard deviation
+
+The variance is another widely used measure of the spread of a
+distribution. It is defined as: 
+
+$$
+\sigma^2 = \frac{1}{n}\sum_{i=1}^n(x_i - \bar{x})^2
+$$
+
+In this formula, $\bar{x}$ is the mean of $x$ and $n$ is the number of
+observations in the sample. Accordingly, $x_i-\bar{x}$ is the deviation
+of $x_i$ from the mean of $x$. If we rewrite this as follows:
+
+$$
+z_i = (x_i - \bar{x})^2
+$$
+
+It is easy to see that the variance is actually the mean of the square
+of the deviations from the mean: 
+
+$$
+\sigma^2 = \frac{1}{n}\sum_{i=1}^nz_i
+$$
+
+The standard deviation is simply the square root of the variance and
+returns the variance to the same units as the original variable. The
+standard deviation is reported by `skim()` as `sd`, and can also be
+calculated with function `sd()` (remember to remove the missing values):
+
+```{r}
+census |>
+  pull(CfInc) |>
+  sd(na.rm = TRUE)
+```
+
+We see that the typical deviation from the mean of `CfInc` (total income
+of the family) was about \$ $60,509$.
+
+## Univariate description
+
+Summary statistics of central tendency and spread refer to a single
+variable and are appropriately called univariate descriptors. These
+descriptors are very important, and we neglect exploring them at our own
+peril. They often tell us important aspects of the data, including how
+complete a data set is, how much variation is there, whether there are
+atypical or unusual values.
+
+As an example, let us calculate the mean, standard deviation, and
+maximum of `CfInc` (total income of census family):
+
+```{r}
+mean_CfInc <- census |> 
+  pull(CfInc) |> 
+  mean(na.rm = TRUE)
+
+sd_CfInc <- census |> 
+  pull(CfInc) |> 
+  sd(na.rm = TRUE)
+
+max_CfInc <- census |> 
+  pull(CfInc) |> 
+  max(na.rm = TRUE)
+```
+
+The maximum average income of the person responsible for the household
+in the data set was R\$ $259,872.70$. Just how common or unusual is this
+value? That depends on how close (or far away) from the mean of the
+distribution this is, as well as on the spread of the distribution. The
+deviation from the mean is:
+
+```{r}
+max_CfInc - mean_CfInc
+```
+
+That is, approximately R\$ $161,352$. But the typical deviation from the
+mean in the sample was about R\$ $60,509$! Now, calculating:
+
+```{r}
+(max_CfInc - mean_CfInc)/sd_CfInc
+```
+
+This tells us that the census tract with the highest total family income
+receives almost three times more than the average total family income.
+This observation is indeed quite unusual. How unusual was the census
+tract with the lowest average income? Let us retrieve the minimum
+duration:
+
+```{r}
+min_CfInc <- census |> 
+  pull(CfInc) |> 
+  min(na.rm = TRUE)
+```
+
+That is, around \$ $3000$. Again, the typical deviation from the mean in
+the sample was R\$ $60,509$! So, calculating:
+
+```{r}
+(min_CfInc - mean_CfInc)/sd_CfInc
+```
+
+The census tract with the lowest average income is closer to the mean,
+and approximately one and half standard deviation below the mean.
+Univariate description is a powerful way to get to know our data before
+doing any more sophisticated explorations or analysis. 
+
+## Bivariate description
+
+Moving on from univariate description, understanding how two variables
+relate to one another is another key aspect of EDA.
+
+### Categorical variables: cross-tabulations
+
+Univariate description of a categorical variable involves tabulating the
+number of instances of each response. This can be expanded to
+simultaneously tabulating two categorical variables. Function `tabyl()`
+can be used, as in the following example:
+
+```{r}
+census |>
+  tabyl(Pr, PwMode) 
+```
+
+What do we learn from this table? The output of the `tabyl()` function
+can be *adorned*, which can improve the readability of the table. The
+following table gives the total sum of the columns as a row at the
+bottom of the table:
+
+```{r}
+census |>
+  tabyl(Pr, PwMode) |>
+  adorn_totals(where = "row")
+```
+
+Or the total sums of the rows as a column at the right of the table:
+
+```{r}
+census |>
+  tabyl(Pr, PwMode) |>
+  adorn_totals(where = "col")
+```
+
+And the values can be displayed as proportions:
+
+```{r}
+census |>
+  tabyl(Pr, PwMode) |>
+  adorn_totals(where = "col") |>
+  adorn_percentages(denominator = "col") |>
+  adorn_pct_formatting()
+```
+
+If our data set has missing observations (NAs), the table can be
+displayed without the missing values, for example:
+
+```{r}
+census |>
+  tabyl(Pr, PwMode,
+        show_na = FALSE) |>
+  adorn_totals(where = "both")
+```
+
+There are in total $n = 198,326$ valid observations when we consider
+variables `Pr` and `PwMode` simultaneously. The proportions (by column)
+are as follows:
+
+```{r}
+census |>
+  tabyl(Pr, PwMode,
+        show_na = FALSE) |>
+  adorn_totals(where = "row") |>
+  adorn_percentages(denominator = "row") |>
+  adorn_pct_formatting()
+```
+
+## Quantitative variables: correlation
+
+The mean and standard deviation are key univariate descriptors of
+quantitative variables. When we are interested in the relationship
+between two quantitative variables we use a related concept, the
+*covariance*. The covariance is the mean of the product of the
+deviations from the mean of two variables:
+
+$$
+C(x,y) = \frac{1}{n}\sum_i(x_i - \bar{x})(y_i - \bar{y})
+$$ 
+
+Here, $\bar{x}$ and $\bar{y}$ are the means of the variables.
+Positive or negative deviations result in positive covariance, while
+opposing deviations result in negative covariance. Like-like deviations
+(both positive or negative) increase covariance, while opposite
+deviations decrease it. Covariance can be normalized by dividing it by
+the product of the variables' standard deviations, resulting in the
+correlation coefficient:
+
+$$
+r(x, y) = \frac{C(x, y)}{\sigma_x\cdot\sigma_y}
+$$ 
+
+The correlation coefficient ranges between -1 and 1, where 0
+indicates no covariance. Correlations can be calculated using the
+`correlate()` function from the {[corrr](https://corrr.tidymodels.org/)}
+package in a pipe-friendly manner:
+
+```{r}
+# PWDUR: Commuting duration
+# PWDist: Distance (straight-line) from home to work
+
+census |>
+  select(PWDUR, PWDist) |> 
+  correlate(method = "pearson",
+            use = "pairwise.complete.obs")
+```
+
+The code above shows that the variables `PWDUR` and `PWDist` have a very
+high correlation (above 0.95), which makes sense, as travel time tends
+to be longer when the distance from the destination is high.
+
+# Visualization techniques
+
+Summary statistics are data reduction techniques that focus on specific
+characteristics of the data, such as central tendency or spread. These
+statistics provide a single number to describe these characteristics but
+are inherently limited as they do not capture all aspects of the data.
+This limitation is intentional, as the goal of Exploratory Data Analysis
+(EDA) is to help us understand data without overwhelming our cognitive
+capabilities.
+
+While summary statistics are valuable, visualization techniques serve as
+a complementary approach. Statistical plots leverage the brain's
+exceptional ability to process visual information, overcoming the
+limitations of short-term memory retention when handling alphanumeric
+data.
+
+What is the central tendency of `CfInc` (total income of census family )
+taking into account only the numbers shown? Is the `PWDist` more or less
+spread than the `CfInc` (distance (straight-line) from home to work)?
+These properties of the data are not readily evident from a quick visual
+scan of the numbers. Summary statistics retrieve the desired information
+for us by "flattening" the data:
+
+```{r}
+census |>
+  filter(PWDist != -3) |>
+  select(CfInc, PWDist) |>
+  slice_head(n = 10) |>
+  summary()
+```
+
+To make matters more difficult, this is only a small part of the full
+table (only ten rows and six columns). The task of identifying patterns
+becomes increasingly complicated as the number of observations and the
+number of variables grow.
+
+Visualization techniques work by *encoding* the data in ways that make
+fuller use of our visual data processing powers. The power of
+visualization techniques is that we can process multiple information
+channels *in parallel*. Shapes and colors are only two ways to encode
+statistical information; in addition, we can distinguish shapes, angles,
+areas, and positions, among other spatial attributes. These encodings
+allow the brain to make sense of the underlying patterns in the blink of
+an eye (see Franconeri et al.
+[2021](https://journals.sagepub.com/doi/abs/10.1177/15291006211051956)),
+although with less precision than with summary statistics.
+
+To better appreciate this power, consider the matrix of correlations:
+
+```{r}
+census |>
+  select(where(is.numeric)) |>
+  correlate(method = "pearson",
+            use = "pairwise.complete.obs") |> 
+  shave()
+```
+
+Now compare to:
+
+```{r}
+census |>
+  select(where(is.numeric)) |>
+  correlate(method = "pearson",
+            use = "pairwise.complete.obs") |> 
+  shave() |>
+  rplot()
+```
+
+By encoding valence using colors and magnitude using size, we can
+present the same information in a form that we naturally process with
+greater ease.
+
+The grammar of graphics, formalized by [Leland
+Wilkinson](https://en.wikipedia.org/wiki/Leland_Wilkinson) in his
+[book](https://www.google.it/books/edition/The_Grammar_of_Graphics/ZiwLCAAAQBAJ),
+provides a structured approach to creating statistical plots, similar to
+how the grammar of data manipulation offers a way to think about data
+operations. This concept inspired the creation of the {ggplot2} package,
+which allows for flexible and intuitive plot creation by layering
+graphical elements. While {ggplot2} requires explicit specification of
+what and how to plot, making it more verbose than simple plotting
+functions, it enables the creation of more sophisticated and expressive
+plots. This approach integrates data manipulation and plotting, allowing
+for detailed and customized visualizations. As with summary statistics,
+it's crucial to consider the scale of measurement when selecting
+geometric objects for plots, which vary based on whether the plots are
+univariate, bivariate, or multivariate, and if the variables are
+categorical or quantitative.
+
+## Univariate plots
+
+Univariate description involves exploring the main attributes of a
+single variable, typically its central tendency and spread. For
+quantitative variables, an appropriate geometric object is a histogram,
+implemented as `geom_hist()`. Using the variable `CfInc` (total income
+of census family), we have:
+
+```{r}
+ggplot(data = census,
+       aes(x = CfInc)) +
+  geom_histogram()
+```
+
+A histogram is the number of cases (the *count* of cases) by ranges of
+values. We only need to encode a single variable (in the example above
+the `CfInc`), because the "count" on the y-axis is a computed statistic.
+The default number of bins in `geom_hist()` is 30, but this can be
+adjusted:
+
+```{r}
+ggplot(data = census,
+       aes(x = CfInc)) +
+  geom_histogram(bins = 20)
+```
+
+An alternative geometric object is a frequency polygon, as shown here:
+
+```{r}
+ggplot(data = census,
+       aes(x = CfInc)) +
+  geom_freqpoly(bins = 20)
+```
+
+A density plot is a smoother version of a frequency polygon:
+
+```{r}
+ggplot(data = census,
+       aes(x = CfInc)) +
+  geom_density(bins = 20) + 
+ scale_x_continuous(breaks=seq(0,max(census$CfInc),50000))
+```
+
+We can use `geom_vline()` to draw vertical lines in the plot (the mean
+in blue, the median in green):
+
+```{r}
+mean_CfInc <- census |> 
+  pull(CfInc) |> 
+  mean(na.rm = TRUE)
+
+median_CfInc <- census |> 
+  pull(CfInc) |> 
+  median(na.rm = TRUE)
+
+ggplot(data = census,
+       aes(x = CfInc)) +
+  geom_density(bins = 20) +
+  geom_vline(xintercept = mean_CfInc,
+             color = "blue",
+             size = 1) +
+  geom_vline(xintercept = median_CfInc,
+             color = "green",
+             size = 1)
+```
+
+The mean and median of a distribution can differ due to the
+distribution's lack of symmetry. The mean is influenced by extreme
+values or outliers, making it less robust compared to the median, which
+is more stable as it is not affected by unusual values.
+
+For categorical variables, a bar chart, implemented with `geom_bar()`, is
+the appropriate geometric object. While bar charts may resemble
+histograms, they differ in two key ways: the order of categories is not
+essential, and there are no value ranges, only distinct category labels.
+
+```{r}
+ggplot() +
+  geom_bar(data = census,
+           aes(x = LBR_FORC))
+```
+
+## Bivariate plots
+
+### Two quantitative variables
+
+The scatterplot is a fundamental visualization method for exploring the
+relationship between two quantitative variables. It maps the values of
+these variables as points on the x- and y-axes, allowing for the
+examination of patterns, correlations, and trends between them.
+
+```{r}
+ggplot(data = census) +
+  geom_point(aes(x = PWDUR, # Commuting duration
+                 y = PWDist) ) # Distance (straight-line) from home to work
+```
+
+### Two categorical variables
+
+Two categorical variables can be explored by means of count plots:
+
+```{r}
+census |>
+  ggplot() +
+  geom_count(aes(x = LBR_FORC, # province or territory of current residence
+               y = Pr)) # employed, unemployed or not in the labour force
+```
+
+Count plots are a visual alternative to a cross-tabulation.
+
+### One categorical and one quantitative variable
+
+Visualization techniques can accommodate combinations of one categorical
+and one quantitative variable, allowing for more nuanced exploration of
+data. For instance, column plots can map a categorical variable to one
+axis and a quantitative variable to the other. In this approach, summary
+statistics like the mean of a quantitative variable (e.g., `CfInc`) are
+calculated for each category of a categorical variable (e.g., commute
+mode) and visualized using `geom_col`(). This technique helps to clearly
+display differences and trends across categories.
+
+```{r}
+census |>
+  group_by(PwMode) |>
+  summarize(mean_CfInc = mean(CfInc, 
+                                 rm.na = TRUE)) |>
+  ggplot() +
+  geom_col(aes(x = PwMode, 
+               y = mean_CfInc)) + 
+  scale_x_discrete(guide = guide_axis(angle = 90))
+```
+
+The graph shows that respondents who commute by bicycle have higher
+household incomes, while people who don't commute by bicycle tend to
+have lower household incomes. The boxplot is another valuable
+visualization technique. It uses a rectangular box to represent the
+interquartile range (IQR) of a distribution, with lines (whiskers)
+extending to 1.5 times the IQR to show the range of most data points.
+Extreme values beyond this range are depicted as individual dots. The
+median of the distribution is shown as a line within the box. In
+ggplot2, boxplots are created using `geom_boxplot()`.
+
+```{r}
+ggplot(data = census) +
+  geom_boxplot(aes(x = PwMode, 
+               y = CfInc)) +
+  scale_x_discrete(guide = guide_axis(angle = 90))
+```
+
+The boxplot does obscure some of the detail of the underlying
+distribution of values. Ridge plots address this by plotting the density
+of the distribution instead:
+
+```{r}
+ggplot(data = census) +
+  geom_density_ridges(aes(x = CfInc, 
+                 y = PwMode)) 
+```
+
+## Multivariate description
+
+Higher dimensional visualization can be created by encoding additional
+variables using available aesthetics. The following chunk of code
+recreates the boxplot of `PwMode` and `CfInc`, and further maps
+`LBR_FORC` to color:
+
+```{r}
+ggplot(data = census) +
+  geom_boxplot(aes(x = PwMode, 
+                 y = CfInc, 
+                 color = LBR_FORC)) + 
+scale_x_discrete(guide = guide_axis(angle = 90))
+```
+
+This graph shows that the household income of people who commute using
+active modes tends to be higher. As you need to be employed to commute,
+the difference variable `LBR_FORC` only appears for those who are not
+commuting to work (`not applicable`) and shows that unemployed people
+have the lowest household income.
+
+The following example recreates the scatterplot of `PWDUR` and `PWDist`
+that we did before, but now adds `PwMode` to plot, encoded to color and
+shape:
+
+```{r}
+ggplot(data = census) +
+  geom_point(aes(x = PWDUR,
+                 y = PWDist,
+                 color = PwMode,
+                 shape = PwMode), 
+             size = 2)
+```
+
+The linear relation displayed in the scatter plot between the variables `PWDUR` and `PwMode` occurs because this data was generated synthetically. 

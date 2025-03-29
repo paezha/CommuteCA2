@@ -1,0 +1,201 @@
+---
+title: "Adding_Datasets"
+output: html_document
+---
+
+Load libraries:
+```{r}
+library("glue") # Interpreted String Literals
+library("here") # A Simpler Way to Find Your Files
+library('sf') # Simple Features for R
+library('tidyverse') # Easily Install and Load the 'Tidyverse'
+library('usethis') # Automate Package and Project Setup
+library('devtools') # Tools to Make Developing R Packages Easier
+```
+
+# Spatial Data
+<!--
+## Census divisions:
+```{r}
+# reading file
+census_divisions_ca21 <- sf::st_read(glue::glue(here::here(), "/data-ignore-inputs/lcd_buffer.shp"))
+```
+
+```{r}
+# adding file to the package
+usethis::use_data(census_divisions_ca21,
+                  compress = "bzip2",
+                  overwrite = TRUE)
+```
+
+## Census Tracts
+```{r}
+# reading file
+census_tracts_ca21 <-
+  sf::st_read(glue::glue(here::here(), 
+                         "/data-ignore-inputs/census_tracts_ca21.shp"))
+```
+
+```{r}
+# adding file to the package
+usethis::use_data(census_tracts_ca21,
+                  compress = "bzip2",
+                  overwrite = TRUE)
+```
+
+## Dissemination Areas
+```{r}
+# reading file
+dissemination_areas_ca21 <- sf::st_read(glue::glue(here::here(), 
+                                                   "/data-ignore-inputs/dissemination_areas_ca21_str.shp"))
+```
+
+```{r}
+# adding file to the package
+usethis::use_data(dissemination_areas_ca21,
+                  compress = "bzip2",
+                  overwrite = TRUE)
+```
+
+-->
+
+# Tabular data
+
+## Census Test Data:
+```{r}
+# reading file
+census_test_data <- read_csv(glue::glue(here::here(), 
+                                        "/data-ignore-inputs/census_test_v3.csv"))
+```
+
+```{r}
+# adding file to the package
+usethis::use_data(census_test_data,
+                  compress = "bzip2",
+                  overwrite = TRUE)
+```
+
+## CMA Impedance Functions
+```{r}
+# reading file
+cma_impedance_functions <- read_csv(glue::glue(here::here(), 
+                                               "/data-ignore-inputs/cma_impedance_functions.csv"))
+```
+
+```{r}
+# adding file to the package
+usethis::use_data(cma_impedance_functions,
+                  compress = "xz",
+                  version = 3,
+                  overwrite = TRUE)
+```
+
+
+## PCD Impedance Functions
+```{r}
+# reading file
+pcd_impedance_functions <-read_csv(glue::glue(here::here(), 
+                                              "/data-ignore-inputs/pcd_impedance_functions.csv"))
+```
+
+```{r}
+# adding file to the package
+usethis::use_data(pcd_impedance_functions,
+                  compress = "bzip2",
+                  overwrite = TRUE)
+```
+
+## PR Impedance Functions
+```{r}
+# reading file
+pr_impedance_functions <- read_csv(glue::glue(here::here(), 
+                                              "/data-ignore-inputs/pr_impedance_functions.csv"))
+```
+
+```{r}
+# adding file to the package
+usethis::use_data(pr_impedance_functions,
+                  compress = "bzip2",
+                  overwrite = TRUE)
+```
+
+## Land Use by mode 
+```{r}
+# reading file
+land_use_CT_mode <-read_csv(glue::glue(here::here(), 
+                                       "/data-ignore-inputs/land_use_CT_mode.csv"))
+```
+
+```{r}
+# adding file to the package
+usethis::use_data(land_use_CT_mode,
+                  compress = "bzip2",
+                  overwrite = TRUE)
+```
+
+## Land Use general
+```{r}
+# reading file
+land_use_CT_general <- read_csv(glue::glue(here::here(), 
+                                           "/data-ignore-inputs/land_use_CT_general.csv"))
+```
+
+```{r}
+# adding file to the package
+usethis::use_data(land_use_CT_general,
+                  compress = "bzip2",
+                  overwrite = TRUE)
+```
+
+# Maximum Travel Times PCD
+
+```{r}
+# reading file
+pcd_max_travel_times <- read_csv(glue::glue(here::here(), 
+                                            "/data-ignore-inputs/pcd_max_travel_times.csv"))
+```
+
+```{r}
+# adding file to the package
+usethis::use_data(pcd_max_travel_times,
+                  compress = "bzip2",
+                  overwrite = TRUE)
+```
+# Maximum Travel Times CMA
+
+```{r}
+# reading file
+cma_max_travel_times <-read_csv(glue::glue(here::here(), 
+                                           "/data-ignore-inputs/cma_max_travel_times.csv"))
+```
+
+```{r}
+# adding file to the package
+usethis::use_data(cma_max_travel_times,
+                  compress = "bzip2",
+                  overwrite = TRUE)
+```
+
+
+<!--
+
+Update documentation:
+```{r}
+devtools::document()
+```
+
+Verifying if the package has any problem:
+```{r}
+devtools::check()
+```
+
+Building the package:
+```{r}
+devtools::build()
+```
+Updating github webpage:
+```{r}
+usethis::use_pkgdown_github_pages()
+```
+-->
+
